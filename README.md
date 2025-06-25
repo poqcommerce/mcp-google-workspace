@@ -22,64 +22,80 @@ A Model Context Protocol (MCP) server that provides efficient batch operations f
 
 1. **Clone the repository:**
    ```bash
-   git clone https://github.com/yourusername/google-sheets-batch-mcp.git
-   cd google-sheets-batch-mcp
+   git clone https://github.com/poqcommerce/mcp-google-drive-batch.git
+   cd mcp-google-drive-batch
+   ```
 
-Install dependencies:
-bashnpm install
+2. **Install dependencies:**
+   ```bash
+   npm install
+   ```
 
-Build the project:
-bashnpm run build
+3. **Build the project:**
+   ```bash
+   npm run build
+   ```
 
+### Authentication Setup
 
-Authentication Setup
+1. **Get Google OAuth credentials:**
+   - Go to [Google Cloud Console](https://console.cloud.google.com/)
+   - Enable Google Sheets API
+   - Create OAuth 2.0 Client ID (Desktop Application)
+   - Copy Client ID and Secret
 
-Get Google OAuth credentials:
+2. **Run the authentication flow:**
+   ```bash
+   GOOGLE_CLIENT_ID="your-id" GOOGLE_CLIENT_SECRET="your-secret" npm run auth
+   ```
 
-Go to Google Cloud Console
-Enable Google Sheets API
-Create OAuth 2.0 Client ID (Desktop Application)
-Copy Client ID and Secret
+3. **Save the refresh token** for use in your MCP client configuration.
 
+### Claude Desktop Configuration
 
-Run the authentication flow:
-bashGOOGLE_CLIENT_ID="your-id" GOOGLE_CLIENT_SECRET="your-secret" npm run auth
-
-Save the refresh token for use in your MCP client configuration.
-
-Claude Desktop Configuration
 You have two options for configuration:
-Configuration with Shell Script (Recommended)
+
+#### **Configuration with Shell Script (Recommended)**
+
 Your setup uses a shell script approach for better security:
 
-Clone and setup:
-bashgit clone https://github.com/yourusername/google-sheets-batch-mcp.git
-cd google-sheets-batch-mcp
-npm install
-npm run build
+1. **Clone and setup:**
+   ```bash
+   git clone https://github.com/poqcommerce/mcp-google-drive-batch.git
+   cd mcp-google-drive-batch
+   npm install
+   npm run build
+   ```
 
-Create your environment file:
-bashcp .env.example .env
-# Edit .env with your actual Google OAuth credentials
+2. **Create your environment file:**
+   ```bash
+   cp .env.example .env
+   # Edit .env with your actual Google OAuth credentials
+   ```
 
-Update Claude Desktop config:
-json{
-  "mcpServers": {
-    "google-sheets-batch": {
-      "command": "/path/to/google-sheets-batch-mcp/start-mcp.sh"
-    }
-  }
-}
+3. **Update Claude Desktop config:**
+   ```json
+   {
+     "mcpServers": {
+       "google-sheets-batch": {
+         "command": "/path/to/mcp-google-drive-batch/start-mcp.sh"
+       }
+     }
+   }
+   ```
 
+The included `start-mcp.sh` script handles loading environment variables and starting the server.
 
-The included start-mcp.sh script handles loading environment variables and starting the server.
-Alternative: Direct Configuration
+#### **Alternative: Direct Configuration**
+
 If you prefer to put credentials directly in Claude config:
-json{
+
+```json
+{
   "mcpServers": {
     "google-sheets-batch": {
       "command": "node",
-      "args": ["/path/to/google-sheets-batch-mcp/dist/index.js"],
+      "args": ["/path/to/mcp-google-drive-batch/dist/index.js"],
       "env": {
         "GOOGLE_CLIENT_ID": "your-client-id",
         "GOOGLE_CLIENT_SECRET": "your-client-secret", 
@@ -88,10 +104,15 @@ json{
     }
   }
 }
-Available Tools
-gsheets_batch_update
+```
+
+## Available Tools
+
+### `gsheets_batch_update`
 Update multiple ranges in a single API call.
-typescriptawait mcp.call('gsheets_batch_update', {
+
+```typescript
+await mcp.call('gsheets_batch_update', {
   spreadsheetId: 'your-sheet-id',
   updates: [
     {
@@ -100,22 +121,34 @@ typescriptawait mcp.call('gsheets_batch_update', {
     }
   ]
 });
-gsheets_create_and_populate
+```
+
+### `gsheets_create_and_populate`
 Create a new sheet with initial data.
-typescriptawait mcp.call('gsheets_create_and_populate', {
+
+```typescript
+await mcp.call('gsheets_create_and_populate', {
   title: 'My New Sheet',
   data: [['Name', 'Value'], ['Item 1', '100']]
 });
-gsheets_append_rows
+```
+
+### `gsheets_append_rows`
 Add new rows to an existing sheet.
-typescriptawait mcp.call('gsheets_append_rows', {
+
+```typescript
+await mcp.call('gsheets_append_rows', {
   spreadsheetId: 'your-sheet-id',
   range: 'Sheet1!A:Z',
   values: [['New', 'Data', 'Row']]
 });
-gsheets_format_cells
+```
+
+### `gsheets_format_cells`
 Apply formatting to cell ranges.
-typescriptawait mcp.call('gsheets_format_cells', {
+
+```typescript
+await mcp.call('gsheets_format_cells', {
   spreadsheetId: 'your-sheet-id',
   requests: [
     {
@@ -124,21 +157,25 @@ typescriptawait mcp.call('gsheets_format_cells', {
     }
   ]
 });
-Performance Benefits
+```
 
-Before: 40+ individual API calls for complex dashboards
-After: 1-3 batch API calls
-Result: 20x faster execution, more reliable, within API limits
+## Performance Benefits
 
-Example Use Cases
+- **Before**: 40+ individual API calls for complex dashboards
+- **After**: 1-3 batch API calls
+- **Result**: 20x faster execution, more reliable, within API limits
 
-Creating KPI dashboards from analytics data
-Bulk data imports and exports
-Automated report generation
-Data synchronization between systems
+## Example Use Cases
 
-Development
-bash# Watch mode for development
+- Creating KPI dashboards from analytics data
+- Bulk data imports and exports
+- Automated report generation
+- Data synchronization between systems
+
+## Development
+
+```bash
+# Watch mode for development
 npm run dev
 
 # Build for production
@@ -146,25 +183,29 @@ npm run build
 
 # Run authentication flow
 npm run auth
-Contributing
+```
 
-Fork the repository
-Create a feature branch (git checkout -b feature/amazing-feature)
-Commit your changes (git commit -m 'Add amazing feature')
-Push to the branch (git push origin feature/amazing-feature)
-Open a Pull Request
+## Contributing
 
-License
-MIT License - see LICENSE file for details.
-Security
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
 
-Never commit OAuth credentials to the repository
-Use environment variables or secure credential storage
-Regularly rotate your OAuth tokens
-Follow Google's API usage guidelines
+## License
 
-Support
+MIT License - see [LICENSE](LICENSE) file for details.
 
-Issues
-Model Context Protocol Documentation
-Google Sheets API Documentation
+## Security
+
+- Never commit OAuth credentials to the repository
+- Use environment variables or secure credential storage
+- Regularly rotate your OAuth tokens
+- Follow Google's API usage guidelines
+
+## Support
+
+- [Issues](https://github.com/poqcommerce/mcp-google-drive-batch/issues)
+- [Model Context Protocol Documentation](https://modelcontextprotocol.io/)
+- [Google Sheets API Documentation](https://developers.google.com/sheets/api)
