@@ -1,21 +1,24 @@
-# Google Sheets Batch MCP
+# Google Workspace Batch MCP
 
-A Model Context Protocol (MCP) server that provides efficient batch operations for Google Sheets, reducing API calls by up to 40x compared to individual cell updates.
+A comprehensive Model Context Protocol (MCP) server that provides efficient batch operations for Google Sheets and full Google Drive access, reducing API calls by up to 40x compared to individual cell updates.
 
 ## Features
 
-- 🚀 **Batch Updates**: Update multiple ranges in a single API call
+- 🚀 **Batch Sheets Operations**: Update multiple ranges in a single API call
 - 📊 **Create & Populate**: Create new sheets with data in one operation
 - ➕ **Append Rows**: Efficiently add new data to existing sheets
 - 🎨 **Format Cells**: Apply formatting to multiple ranges at once
-- 🔐 **OAuth2 Authentication**: Secure user-based access to Google Sheets
+- 🔍 **Google Drive Search**: Find files with powerful query syntax
+- 📖 **Drive File Reading**: Read Google Docs, Sheets, and text files
+- 📋 **File Metadata**: Get detailed information about Drive files
+- 🔐 **OAuth2 Authentication**: Secure user-based access to Google Workspace
 
 ## Quick Start
 
 ### Prerequisites
 
 - Node.js 18+ 
-- Google Cloud Project with Sheets API enabled
+- Google Cloud Project with Sheets API and Drive API enabled
 - Claude Desktop or compatible MCP client
 
 ### Installation
@@ -40,7 +43,7 @@ A Model Context Protocol (MCP) server that provides efficient batch operations f
 
 1. **Get Google OAuth credentials:**
    - Go to [Google Cloud Console](https://console.cloud.google.com/)
-   - Enable Google Sheets API
+   - Enable Google Sheets API and Google Drive API
    - Create OAuth 2.0 Client ID (Desktop Application)
    - Copy Client ID and Secret
 
@@ -68,19 +71,16 @@ Your setup uses a shell script approach for better security:
    ```
 
 2. **Create your environment file:**
-
    ```bash
    cp .env.example .env
-   #Edit .env with your actual Google OAuth credentials
+   # Edit .env with your actual Google OAuth credentials
    ```
 
-      
 3. **Update Claude Desktop config:**
-
    ```json
    {
      "mcpServers": {
-       "google-sheets-batch": {
+       "google-workspace-batch": {
          "command": "/path/to/mcp-google-drive-batch/start-mcp.sh"
        }
      }
@@ -96,7 +96,7 @@ If you prefer to put credentials directly in Claude config:
 ```json
 {
   "mcpServers": {
-    "google-sheets-batch": {
+    "google-workspace-batch": {
       "command": "node",
       "args": ["/path/to/mcp-google-drive-batch/dist/index.js"],
       "env": {
@@ -111,8 +111,10 @@ If you prefer to put credentials directly in Claude config:
 
 ## Available Tools
 
-### `gsheets_batch_update`
-Update multiple ranges in a single API call.
+### Google Sheets Operations
+
+#### `gsheets_batch_update`
+Update multiple ranges in a single API call (40x faster than individual updates).
 
 ```typescript
 await mcp.call('gsheets_batch_update', {
@@ -126,7 +128,7 @@ await mcp.call('gsheets_batch_update', {
 });
 ```
 
-### `gsheets_create_and_populate`
+#### `gsheets_create_and_populate`
 Create a new sheet with initial data.
 
 ```typescript
@@ -136,7 +138,7 @@ await mcp.call('gsheets_create_and_populate', {
 });
 ```
 
-### `gsheets_append_rows`
+#### `gsheets_append_rows`
 Add new rows to an existing sheet.
 
 ```typescript
@@ -147,7 +149,7 @@ await mcp.call('gsheets_append_rows', {
 });
 ```
 
-### `gsheets_format_cells`
+#### `gsheets_format_cells`
 Apply formatting to cell ranges.
 
 ```typescript
@@ -162,18 +164,109 @@ await mcp.call('gsheets_format_cells', {
 });
 ```
 
+### Google Drive Operations
+
+#### `gdrive_search`
+Search for files in Google Drive with powerful query syntax.
+
+```typescript
+await mcp.call('gdrive_search', {
+  query: "name contains 'budget' and type = 'spreadsheet'",
+  pageSize: 20
+});
+```
+
+**Common search queries:**
+- `name contains 'KPI'` - Files with "KPI" in the name
+- `type = 'document'` - Google Docs only
+- `type = 'spreadsheet'` - Google Sheets only
+- `modifiedTime > '2024-01-01'` - Recently modified files
+- `'your-folder-id' in parents` - Files in specific folder
+
+#### `gdrive_read_file`
+Read contents of Google Drive files (Docs, Sheets as CSV, text files).
+
+```typescript
+await mcp.call('gdrive_read_file', {
+  fileId: 'your-file-id'
+});
+```
+
+**Supported file types:**
+- Google Docs (exported as plain text)
+- Google Sheets (exported as CSV)
+- Text files (.txt, .md, .json, etc.)
+
+#### `gdrive_get_file_info`
+Get detailed metadata about a file.
+
+```typescript
+await mcp.call('gdrive_get_file_info', {
+  fileId: 'your-file-id'
+});
+```
+
 ## Performance Benefits
 
 - **Before**: 40+ individual API calls for complex dashboards
 - **After**: 1-3 batch API calls
 - **Result**: 20x faster execution, more reliable, within API limits
 
+## Comprehensive Workflow Examples
+
+### Create KPI Dashboard from Drive Data
+
+```typescript
+// 1. Search for source data in Drive
+const files = await mcp.call('gdrive_search', {
+  query: "name contains 'analytics' and type = 'spreadsheet'"
+});
+
+// 2. Read the data
+const sourceData = await mcp.call('gdrive_read_file', {
+  fileId: files[0].id
+});
+
+// 3. Create comprehensive dashboard in one batch operation
+await mcp.call('gsheets_create_and_populate', {
+  title: 'Executive KPI Dashboard',
+  data: processedAnalyticsData // All rows in single API call
+});
+```
+
+### Business Intelligence Automation
+
+```typescript
+// Find all customer deal documents
+const dealDocs = await mcp.call('gdrive_search', {
+  query: "name contains 'customer deals' and type = 'document'"
+});
+
+// Read and consolidate data from multiple sources
+const consolidatedData = [];
+for (const doc of dealDocs) {
+  const content = await mcp.call('gdrive_read_file', {fileId: doc.id});
+  consolidatedData.push(...parseDealsData(content));
+}
+
+// Create master dashboard with batch operations
+await mcp.call('gsheets_batch_update', {
+  spreadsheetId: 'master-dashboard-id',
+  updates: [
+    { range: 'A1:Z100', values: consolidatedData },
+    { range: 'Summary!A1:E20', values: summaryMetrics }
+  ]
+});
+```
+
 ## Example Use Cases
 
-- Creating KPI dashboards from analytics data
-- Bulk data imports and exports
-- Automated report generation
-- Data synchronization between systems
+- **Executive Dashboards**: Combine data from multiple Drive sources into comprehensive Sheets dashboards
+- **Business Intelligence**: Automate report generation from scattered documents
+- **Data Consolidation**: Merge information from various Google Docs and Sheets
+- **Content Analysis**: Process and analyze documents at scale
+- **Automated Reporting**: Create recurring reports from dynamic data sources
+- **Project Management**: Aggregate status from multiple project documents
 
 ## Development
 
@@ -206,9 +299,11 @@ MIT License - see [LICENSE](LICENSE) file for details.
 - Use environment variables or secure credential storage
 - Regularly rotate your OAuth tokens
 - Follow Google's API usage guidelines
+- **Drive permissions**: This MCP uses read-only access to Google Drive for security
 
 ## Support
 
 - [Issues](https://github.com/poqcommerce/mcp-google-drive-batch/issues)
 - [Model Context Protocol Documentation](https://modelcontextprotocol.io/)
 - [Google Sheets API Documentation](https://developers.google.com/sheets/api)
+- [Google Drive API Documentation](https://developers.google.com/drive/api)
