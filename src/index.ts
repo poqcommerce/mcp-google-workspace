@@ -4,7 +4,7 @@ import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
-import { google, sheets_v4 } from 'googleapis';
+import { google, sheets_v4, drive_v3 } from 'googleapis';
 import { OAuth2Client } from 'google-auth-library';
 
 interface BatchUpdateRequest {
@@ -20,14 +20,15 @@ interface CreateSheetRequest {
   sheetTitle?: string;
 }
 
-class GoogleSheetsBatchMCP {
+class GoogleWorkspaceBatchMCP {
   private server: Server;
   private auth: OAuth2Client;
   private sheets: sheets_v4.Sheets;
+  private drive: drive_v3.Drive;
 
   constructor() {
     // Add debugging
-    console.error('Starting GoogleSheetsBatchMCP...');
+    console.error('Starting GoogleWorkspaceBatchMCP...');
     console.error('Environment check:');
     console.error('GOOGLE_CLIENT_ID:', process.env.GOOGLE_CLIENT_ID ? 'Set' : 'Missing');
     console.error('GOOGLE_CLIENT_SECRET:', process.env.GOOGLE_CLIENT_SECRET ? 'Set' : 'Missing');
@@ -35,7 +36,7 @@ class GoogleSheetsBatchMCP {
 
     this.server = new Server(
       {
-        name: 'google-sheets-batch',
+        name: 'google-workspace-batch',
         version: '1.0.0',
       },
       {
@@ -70,7 +71,8 @@ class GoogleSheetsBatchMCP {
       }
 
       this.sheets = google.sheets({ version: 'v4', auth: this.auth });
-      console.error('Google Sheets client initialized successfully');
+      this.drive = google.drive({ version: 'v3', auth: this.auth });
+      console.error('Google Workspace clients initialized successfully');
 
       this.setupToolHandlers();
       console.error('Tool handlers set up successfully');
@@ -83,7 +85,10 @@ class GoogleSheetsBatchMCP {
 
   // Add a method to get the authorization URL for initial setup
   private getAuthUrl(): string {
-    const scopes = ['https://www.googleapis.com/auth/spreadsheets'];
+    const scopes = [
+      'https://www.googleapis.com/auth/spreadsheets',
+      'https://www.googleapis.com/auth/drive.readonly'
+    ];
     
     return this.auth.generateAuthUrl({
       access_type: 'offline',
@@ -179,6 +184,32 @@ class GoogleSheetsBatchMCP {
     return {
       spreadsheetId: args.spreadsheetId,
       requests: args.requests
+    };
+  }
+
+  private validateDriveSearchArgs(args: any) {
+    if (!args || typeof args !== 'object') {
+      throw new Error('Invalid arguments: expected object');
+    }
+    if (!args.query || typeof args.query !== 'string') {
+      throw new Error('Invalid query: expected non-empty string');
+    }
+    return {
+      query: args.query,
+      pageSize: args.pageSize || 10,
+      pageToken: args.pageToken || undefined
+    };
+  }
+
+  private validateDriveReadArgs(args: any) {
+    if (!args || typeof args !== 'object') {
+      throw new Error('Invalid arguments: expected object');
+    }
+    if (!args.fileId || typeof args.fileId !== 'string') {
+      throw new Error('Invalid fileId: expected non-empty string');
+    }
+    return {
+      fileId: args.fileId
     };
   }
 
@@ -326,6 +357,57 @@ class GoogleSheetsBatchMCP {
             required: ['code'],
           },
         },
+        {
+          name: 'gdrive_search',
+          description: 'Search for files in Google Drive',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              query: {
+                type: 'string',
+                description: 'Search query (e.g., "name contains \'budget\'" or "type = \'spreadsheet\'")',
+              },
+              pageSize: {
+                type: 'number',
+                description: 'Number of results per page (max 100)',
+                default: 10,
+              },
+              pageToken: {
+                type: 'string',
+                description: 'Token for the next page of results',
+              },
+            },
+            required: ['query'],
+          },
+        },
+        {
+          name: 'gdrive_read_file',
+          description: 'Read contents of a file from Google Drive',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              fileId: {
+                type: 'string',
+                description: 'ID of the file to read',
+              },
+            },
+            required: ['fileId'],
+          },
+        },
+        {
+          name: 'gdrive_get_file_info',
+          description: 'Get metadata information about a Google Drive file',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              fileId: {
+                type: 'string',
+                description: 'ID of the file to get info for',
+              },
+            },
+            required: ['fileId'],
+          },
+        },
       ],
     }));
 
@@ -357,6 +439,18 @@ class GoogleSheetsBatchMCP {
               throw new Error('Authorization code is required');
             }
             return this.handleSetAuthCode(code);
+          
+          case 'gdrive_search':
+            const searchArgs = this.validateDriveSearchArgs(request.params.arguments);
+            return this.handleDriveSearch(searchArgs);
+          
+          case 'gdrive_read_file':
+            const readArgs = this.validateDriveReadArgs(request.params.arguments);
+            return this.handleDriveReadFile(readArgs);
+          
+          case 'gdrive_get_file_info':
+            const infoArgs = this.validateDriveReadArgs(request.params.arguments);
+            return this.handleDriveGetFileInfo(infoArgs);
           
           default:
             throw new Error(`Unknown tool: ${request.params.name}`);
@@ -416,6 +510,150 @@ class GoogleSheetsBatchMCP {
           {
             type: 'text',
             text: `Error exchanging code for tokens: ${error}`,
+          },
+        ],
+        isError: true,
+      };
+    }
+  }
+
+  private async handleDriveSearch(args: {
+    query: string;
+    pageSize: number;
+    pageToken?: string;
+  }) {
+    try {
+      const response = await this.drive.files.list({
+        q: args.query,
+        pageSize: args.pageSize,
+        pageToken: args.pageToken,
+        fields: 'nextPageToken, files(id, name, mimeType, size, modifiedTime, createdTime)',
+      });
+
+      const files = response.data.files || [];
+      const fileList = files.map(file => 
+        `${file.id} ${file.name} (${file.mimeType})`
+      ).join('\n');
+
+      let result = `Found ${files.length} files:\n${fileList}`;
+      
+      if (response.data.nextPageToken) {
+        result += `\n\nMore results available. Use pageToken: ${response.data.nextPageToken}`;
+      }
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: result,
+          },
+        ],
+      };
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `Error searching Drive: ${error}`,
+          },
+        ],
+        isError: true,
+      };
+    }
+  }
+
+  private async handleDriveReadFile(args: { fileId: string }) {
+    try {
+      // First get file metadata to determine type
+      const fileInfo = await this.drive.files.get({
+        fileId: args.fileId,
+        fields: 'name, mimeType, size',
+      });
+
+      const mimeType = fileInfo.data.mimeType;
+      const fileName = fileInfo.data.name;
+
+      let content: string;
+
+      // Handle different file types
+      if (mimeType === 'application/vnd.google-apps.document') {
+        // Google Docs - export as plain text
+        const response = await this.drive.files.export({
+          fileId: args.fileId,
+          mimeType: 'text/plain',
+        });
+        content = response.data as string;
+      } else if (mimeType === 'application/vnd.google-apps.spreadsheet') {
+        // Google Sheets - export as CSV
+        const response = await this.drive.files.export({
+          fileId: args.fileId,
+          mimeType: 'text/csv',
+        });
+        content = response.data as string;
+      } else if (mimeType?.startsWith('text/') || mimeType === 'application/json') {
+        // Text files - read directly
+        const response = await this.drive.files.get({
+          fileId: args.fileId,
+          alt: 'media',
+        });
+        content = response.data as string;
+      } else {
+        throw new Error(`Unsupported file type: ${mimeType}. Can only read text files, Google Docs, and Google Sheets.`);
+      }
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `Contents of ${fileName}:\n\n${content}`,
+          },
+        ],
+      };
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `Error reading file: ${error}`,
+          },
+        ],
+        isError: true,
+      };
+    }
+  }
+
+  private async handleDriveGetFileInfo(args: { fileId: string }) {
+    try {
+      const response = await this.drive.files.get({
+        fileId: args.fileId,
+        fields: 'id, name, mimeType, size, createdTime, modifiedTime, owners, permissions',
+      });
+
+      const file = response.data;
+      const info = {
+        id: file.id,
+        name: file.name,
+        mimeType: file.mimeType,
+        size: file.size,
+        createdTime: file.createdTime,
+        modifiedTime: file.modifiedTime,
+        owners: file.owners?.map(owner => owner.emailAddress),
+      };
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify(info, null, 2),
+          },
+        ],
+      };
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `Error getting file info: ${error}`,
           },
         ],
         isError: true,
@@ -711,7 +949,7 @@ const __dirname = dirname(__filename);
 if (process.argv[1] === __filename) {
   console.error('Starting MCP server...');
   try {
-    const server = new GoogleSheetsBatchMCP();
+    const server = new GoogleWorkspaceBatchMCP();
     server.run().catch((error) => {
       console.error('Server run error:', error);
       process.exit(1);
@@ -722,4 +960,4 @@ if (process.argv[1] === __filename) {
   }
 }
 
-export { GoogleSheetsBatchMCP };
+export { GoogleWorkspaceBatchMCP };

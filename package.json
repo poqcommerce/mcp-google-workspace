@@ -1,5 +1,5 @@
 {
-  "name": "google-sheets-batch-mcp",
+  "name": "google-workspace-batch-mcp",
   "version": "1.0.0",
   "type": "module",
   "scripts": {
@@ -32,5 +32,6 @@
   "homepage": "https://github.com/yourusername/google-sheets-batch-mcp#readme",
   "keywords": "[\"mcp\", \"google-sheets\", \"batch\", \"api\", \"claude\", \"model-context-protocol\"]",
   "author": "Your Name <your.email@example.com>",
-  "license": "MIT"
+  "license": "MIT",
+  "description": "Comprehensive Google Workspace MCP with efficient batch operations"
 }

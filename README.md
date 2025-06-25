@@ -68,12 +68,15 @@ Your setup uses a shell script approach for better security:
    ```
 
 2. **Create your environment file:**
+
    ```bash
    cp .env.example .env
-   # Edit .env with your actual Google OAuth credentials
+   #Edit .env with your actual Google OAuth credentials
    ```
 
+      
 3. **Update Claude Desktop config:**
+
    ```json
    {
      "mcpServers": {

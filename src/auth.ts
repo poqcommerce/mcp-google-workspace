@@ -6,7 +6,10 @@ import { URL } from 'url';
 import open from 'open';
 
 const REDIRECT_URI = 'http://localhost:3000/oauth/callback';
-const SCOPES = ['https://www.googleapis.com/auth/spreadsheets'];
+const SCOPES = [
+  'https://www.googleapis.com/auth/spreadsheets',
+  'https://www.googleapis.com/auth/drive.readonly'
+];
 
 async function authenticate() {
   const clientId = process.env.GOOGLE_CLIENT_ID;
