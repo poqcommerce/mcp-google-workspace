@@ -1,0 +1,36 @@
+{
+  "name": "google-sheets-batch-mcp",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "ts-node --esm src/index.ts",
+    "auth": "ts-node --esm src/auth.ts"
+  },
+  "bin": {
+    "google-sheets-batch-mcp": "./dist/index.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.13.1",
+    "google-auth-library": "^10.1.0",
+    "googleapis": "^150.0.1",
+    "open": "^10.1.2"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.4",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.8.3"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yourusername/google-sheets-batch-mcp.git"
+  },
+  "bugs": {
+    "url": "https://github.com/yourusername/google-sheets-batch-mcp/issues"
+  },
+  "homepage": "https://github.com/yourusername/google-sheets-batch-mcp#readme",
+  "keywords": "[\"mcp\", \"google-sheets\", \"batch\", \"api\", \"claude\", \"model-context-protocol\"]",
+  "author": "Your Name <your.email@example.com>",
+  "license": "MIT"
+}
