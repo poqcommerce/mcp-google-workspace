@@ -1,32 +1,44 @@
-# Google Workspace Batch MCP
+# Google Workspace MCP
 
-A comprehensive Model Context Protocol (MCP) server that provides efficient batch operations for Google Sheets and full Google Drive access, reducing API calls by up to 40x compared to individual cell updates.
+A comprehensive Model Context Protocol (MCP) server that provides efficient operations for Google Sheets, full Google Drive access, and complete Google Docs functionality, reducing API calls by up to 40x compared to individual operations.
 
 ## Features
 
-- 🚀 **Batch Sheets Operations**: Update multiple ranges in a single API call
+### Google Sheets
+- 🚀 **Batch Operations**: Update multiple ranges in a single API call
 - 📊 **Create & Populate**: Create new sheets with data in one operation
 - ➕ **Append Rows**: Efficiently add new data to existing sheets
 - 🎨 **Format Cells**: Apply formatting to multiple ranges at once
-- 🔍 **Google Drive Search**: Find files with powerful query syntax
-- 📖 **Drive File Reading**: Read Google Docs, Sheets, and text files
-- 📋 **File Metadata**: Get detailed information about Drive files
+
+### Google Docs
+- 📝 **Document Creation**: Create new Google Docs with initial content
+- ✏️ **Text Operations**: Insert, append, and replace text efficiently
+- 🎨 **Rich Formatting**: Apply bold, italic, underline, and font sizing
+- 📑 **Heading Management**: Convert text to headings (H1-H6)
+
+### Google Drive
+- 🔍 **Advanced Search**: Find files with powerful query syntax
+- 📖 **File Reading**: Read Google Docs, Sheets, and text files
+- 📋 **Metadata Access**: Get detailed information about Drive files
+
+### General
 - 🔐 **OAuth2 Authentication**: Secure user-based access to Google Workspace
+- ⚡ **Performance Optimized**: Batch operations for maximum efficiency
 
 ## Quick Start
 
 ### Prerequisites
 
 - Node.js 18+ 
-- Google Cloud Project with Sheets API and Drive API enabled
+- Google Cloud Project with Sheets API, Drive API, and Docs API enabled
 - Claude Desktop or compatible MCP client
 
 ### Installation
 
 1. **Clone the repository:**
    ```bash
-   git clone https://github.com/poqcommerce/mcp-google-drive-batch.git
-   cd mcp-google-drive-batch
+   git clone https://github.com/poqcommerce/mcp-google-workspace.git
+   cd mcp-google-workspace
    ```
 
 2. **Install dependencies:**
@@ -43,7 +55,7 @@ A comprehensive Model Context Protocol (MCP) server that provides efficient batc
 
 1. **Get Google OAuth credentials:**
    - Go to [Google Cloud Console](https://console.cloud.google.com/)
-   - Enable Google Sheets API and Google Drive API
+   - Enable Google Sheets API, Google Drive API, and Google Docs API
    - Create OAuth 2.0 Client ID (Desktop Application)
    - Copy Client ID and Secret
 
@@ -51,6 +63,11 @@ A comprehensive Model Context Protocol (MCP) server that provides efficient batc
    ```bash
    GOOGLE_CLIENT_ID="your-id" GOOGLE_CLIENT_SECRET="your-secret" npm run auth
    ```
+   
+   This will authorize access to:
+   - ✓ Google Sheets (read/write)
+   - ✓ Google Drive (read-only)
+   - ✓ Google Docs (read/write)
 
 3. **Save the refresh token** for use in your MCP client configuration.
 
@@ -64,8 +81,8 @@ Your setup uses a shell script approach for better security:
 
 1. **Clone and setup:**
    ```bash
-   git clone https://github.com/poqcommerce/mcp-google-drive-batch.git
-   cd mcp-google-drive-batch
+   git clone https://github.com/poqcommerce/mcp-google-workspace.git
+   cd mcp-google-workspace
    npm install
    npm run build
    ```
@@ -80,8 +97,8 @@ Your setup uses a shell script approach for better security:
    ```json
    {
      "mcpServers": {
-       "google-workspace-batch": {
-         "command": "/path/to/mcp-google-drive-batch/start-mcp.sh"
+       "google-workspace": {
+         "command": "/path/to/mcp-google-workspace/start-mcp.sh"
        }
      }
    }
@@ -96,9 +113,9 @@ If you prefer to put credentials directly in Claude config:
 ```json
 {
   "mcpServers": {
-    "google-workspace-batch": {
+    "google-workspace": {
       "command": "node",
-      "args": ["/path/to/mcp-google-drive-batch/dist/index.js"],
+      "args": ["/path/to/mcp-google-workspace/dist/index.js"],
       "env": {
         "GOOGLE_CLIENT_ID": "your-client-id",
         "GOOGLE_CLIENT_SECRET": "your-client-secret", 
@@ -164,6 +181,88 @@ await mcp.call('gsheets_format_cells', {
 });
 ```
 
+### Google Docs Operations
+
+#### `gdocs_create_document`
+Create a new Google Document with optional initial content.
+
+```typescript
+await mcp.call('gdocs_create_document', {
+  title: 'My New Document',
+  content: 'This is the initial content of my document.'
+});
+```
+
+#### `gdocs_get_document`
+Read the full content of a Google Document.
+
+```typescript
+await mcp.call('gdocs_get_document', {
+  documentId: 'your-document-id'
+});
+```
+
+#### `gdocs_insert_text`
+Insert text at a specific position in the document.
+
+```typescript
+await mcp.call('gdocs_insert_text', {
+  documentId: 'your-document-id',
+  text: 'New paragraph content\n',
+  index: 100  // Optional: position to insert (defaults to end)
+});
+```
+
+#### `gdocs_append_text`
+Add text to the end of a document.
+
+```typescript
+await mcp.call('gdocs_append_text', {
+  documentId: 'your-document-id',
+  text: 'This text will be added to the end of the document.'
+});
+```
+
+#### `gdocs_replace_text`
+Find and replace text throughout the document.
+
+```typescript
+await mcp.call('gdocs_replace_text', {
+  documentId: 'your-document-id',
+  find: 'old text',
+  replace: 'new text'
+});
+```
+
+#### `gdocs_format_text`
+Apply formatting to specific text ranges.
+
+```typescript
+await mcp.call('gdocs_format_text', {
+  documentId: 'your-document-id',
+  startIndex: 0,
+  endIndex: 20,
+  format: {
+    bold: true,
+    italic: false,
+    underline: true,
+    fontSize: 16
+  }
+});
+```
+
+#### `gdocs_set_heading`
+Convert text to a heading (H1-H6).
+
+```typescript
+await mcp.call('gdocs_set_heading', {
+  documentId: 'your-document-id',
+  startIndex: 0,
+  endIndex: 15,
+  headingLevel: 1  // 1-6 for H1-H6
+});
+```
+
 ### Google Drive Operations
 
 #### `gdrive_search`
@@ -206,9 +305,17 @@ await mcp.call('gdrive_get_file_info', {
 });
 ```
 
+### Authentication Tools
+
+#### `gsheets_get_auth_url`
+Get the OAuth authorization URL for initial setup.
+
+#### `gsheets_set_auth_code`
+Exchange authorization code for access tokens.
+
 ## Performance Benefits
 
-- **Before**: 40+ individual API calls for complex dashboards
+- **Before**: 40+ individual API calls for complex dashboards and documents
 - **After**: 1-3 batch API calls
 - **Result**: 20x faster execution, more reliable, within API limits
 
@@ -231,6 +338,38 @@ const sourceData = await mcp.call('gdrive_read_file', {
 await mcp.call('gsheets_create_and_populate', {
   title: 'Executive KPI Dashboard',
   data: processedAnalyticsData // All rows in single API call
+});
+```
+
+### Automated Report Generation
+
+```typescript
+// Create a new report document
+const report = await mcp.call('gdocs_create_document', {
+  title: 'Monthly Business Report',
+  content: 'MONTHLY BUSINESS REPORT\n\n'
+});
+
+// Add formatted sections
+await mcp.call('gdocs_set_heading', {
+  documentId: report.documentId,
+  startIndex: 0,
+  endIndex: 23,
+  headingLevel: 1
+});
+
+// Append analytics data
+await mcp.call('gdocs_append_text', {
+  documentId: report.documentId,
+  text: '\n\nEXECUTIVE SUMMARY\n\nKey metrics for this month:\n- Revenue: $X\n- Growth: Y%\n- Customers: Z'
+});
+
+// Format the summary section
+await mcp.call('gdocs_format_text', {
+  documentId: report.documentId,
+  startIndex: 25,
+  endIndex: 41,
+  format: { bold: true, fontSize: 14 }
 });
 ```
 
@@ -259,14 +398,58 @@ await mcp.call('gsheets_batch_update', {
 });
 ```
 
+### Content Management Workflows
+
+```typescript
+// Search for template documents
+const templates = await mcp.call('gdrive_search', {
+  query: "name contains 'template' and type = 'document'"
+});
+
+// Read template content
+const templateContent = await mcp.call('gdrive_read_file', {
+  fileId: templates[0].id
+});
+
+// Create customized documents from template
+const newDoc = await mcp.call('gdocs_create_document', {
+  title: 'Customer Proposal - Acme Corp',
+  content: templateContent
+});
+
+// Customize with client-specific information
+await mcp.call('gdocs_replace_text', {
+  documentId: newDoc.documentId,
+  find: '{{CLIENT_NAME}}',
+  replace: 'Acme Corporation'
+});
+
+await mcp.call('gdocs_replace_text', {
+  documentId: newDoc.documentId,
+  find: '{{DATE}}',
+  replace: new Date().toLocaleDateString()
+});
+```
+
 ## Example Use Cases
 
+### Document Management
+- **Report Generation**: Create formatted reports with data from multiple sources
+- **Template Processing**: Automate document creation from templates
+- **Content Analysis**: Process and analyze documents at scale
+- **Proposal Creation**: Generate customized proposals and contracts
+
+### Data Operations
 - **Executive Dashboards**: Combine data from multiple Drive sources into comprehensive Sheets dashboards
 - **Business Intelligence**: Automate report generation from scattered documents
 - **Data Consolidation**: Merge information from various Google Docs and Sheets
-- **Content Analysis**: Process and analyze documents at scale
 - **Automated Reporting**: Create recurring reports from dynamic data sources
+
+### Workflow Automation
 - **Project Management**: Aggregate status from multiple project documents
+- **Content Publishing**: Coordinate content across Docs and Sheets
+- **Document Workflows**: Automate document creation, formatting, and distribution
+- **Cross-Platform Integration**: Bridge data between Sheets, Docs, and Drive
 
 ## Development
 
@@ -300,10 +483,12 @@ MIT License - see [LICENSE](LICENSE) file for details.
 - Regularly rotate your OAuth tokens
 - Follow Google's API usage guidelines
 - **Drive permissions**: This MCP uses read-only access to Google Drive for security
+- **Docs permissions**: Full read/write access to Google Docs for document management
 
 ## Support
 
-- [Issues](https://github.com/poqcommerce/mcp-google-drive-batch/issues)
+- [Issues](https://github.com/poqcommerce/mcp-google-workspace/issues)
 - [Model Context Protocol Documentation](https://modelcontextprotocol.io/)
 - [Google Sheets API Documentation](https://developers.google.com/sheets/api)
 - [Google Drive API Documentation](https://developers.google.com/drive/api)
+- [Google Docs API Documentation](https://developers.google.com/docs/api)

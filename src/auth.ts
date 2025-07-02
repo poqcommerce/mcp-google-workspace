@@ -8,7 +8,8 @@ import open from 'open';
 const REDIRECT_URI = 'http://localhost:3000/oauth/callback';
 const SCOPES = [
   'https://www.googleapis.com/auth/spreadsheets',
-  'https://www.googleapis.com/auth/drive.readonly'
+  'https://www.googleapis.com/auth/drive.readonly',
+  'https://www.googleapis.com/auth/documents'
 ];
 
 async function authenticate() {
@@ -31,6 +32,10 @@ async function authenticate() {
   });
 
   console.log('Starting OAuth flow...');
+  console.log('This will authorize access to:');
+  console.log('  ✓ Google Sheets (read/write)');
+  console.log('  ✓ Google Drive (read-only)');
+  console.log('  ✓ Google Docs (read/write)');
   console.log('Opening browser for authorization...');
 
   // Create a local server to handle the callback
@@ -55,11 +60,23 @@ async function authenticate() {
                     GOOGLE_REFRESH_TOKEN=${tokens.refresh_token}
                   </code>
                 </div>
+                <div style="background: #e8f4fd; padding: 15px; margin: 20px 0; border-radius: 5px;">
+                  <h4>Authorized Services:</h4>
+                  <ul style="list-style: none; padding: 0;">
+                    <li>✓ Google Sheets (read/write)</li>
+                    <li>✓ Google Drive (read-only)</li>
+                    <li>✓ Google Docs (read/write)</li>
+                  </ul>
+                </div>
               </body>
             </html>
           `);
           
           console.log('\n🎉 Authorization successful!');
+          console.log('\nAuthorized services:');
+          console.log('  ✓ Google Sheets (read/write)');
+          console.log('  ✓ Google Drive (read-only)');
+          console.log('  ✓ Google Docs (read/write)');
           console.log('\nAdd this environment variable to your Claude Desktop config:');
           console.log(`\n  "GOOGLE_REFRESH_TOKEN": "${tokens.refresh_token}"\n`);
           console.log('Then restart Claude Desktop.\n');

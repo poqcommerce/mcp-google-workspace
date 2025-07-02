@@ -4,7 +4,7 @@ import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
-import { google, sheets_v4, drive_v3 } from 'googleapis';
+import { google, sheets_v4, drive_v3, docs_v1 } from 'googleapis';
 import { OAuth2Client } from 'google-auth-library';
 
 interface BatchUpdateRequest {
@@ -20,15 +20,45 @@ interface CreateSheetRequest {
   sheetTitle?: string;
 }
 
-class GoogleWorkspaceBatchMCP {
+interface CreateDocumentRequest {
+  title: string;
+  content?: string;
+}
+
+interface InsertTextRequest {
+  documentId: string;
+  text: string;
+  index?: number;
+}
+
+interface ReplaceTextRequest {
+  documentId: string;
+  find: string;
+  replace: string;
+}
+
+interface FormatTextRequest {
+  documentId: string;
+  startIndex: number;
+  endIndex: number;
+  format: {
+    bold?: boolean;
+    italic?: boolean;
+    underline?: boolean;
+    fontSize?: number;
+  };
+}
+
+class GoogleWorkspaceMCP {
   private server: Server;
   private auth: OAuth2Client;
   private sheets: sheets_v4.Sheets;
   private drive: drive_v3.Drive;
+  private docs: docs_v1.Docs;
 
   constructor() {
     // Add debugging
-    console.error('Starting GoogleWorkspaceBatchMCP...');
+    console.error('Starting GoogleWorkspaceMCP...');
     console.error('Environment check:');
     console.error('GOOGLE_CLIENT_ID:', process.env.GOOGLE_CLIENT_ID ? 'Set' : 'Missing');
     console.error('GOOGLE_CLIENT_SECRET:', process.env.GOOGLE_CLIENT_SECRET ? 'Set' : 'Missing');
@@ -36,7 +66,7 @@ class GoogleWorkspaceBatchMCP {
 
     this.server = new Server(
       {
-        name: 'google-workspace-batch',
+        name: 'google-workspace',
         version: '1.0.0',
       },
       {
@@ -72,6 +102,7 @@ class GoogleWorkspaceBatchMCP {
 
       this.sheets = google.sheets({ version: 'v4', auth: this.auth });
       this.drive = google.drive({ version: 'v3', auth: this.auth });
+      this.docs = google.docs({ version: 'v1', auth: this.auth });
       console.error('Google Workspace clients initialized successfully');
 
       this.setupToolHandlers();
@@ -87,7 +118,8 @@ class GoogleWorkspaceBatchMCP {
   private getAuthUrl(): string {
     const scopes = [
       'https://www.googleapis.com/auth/spreadsheets',
-      'https://www.googleapis.com/auth/drive.readonly'
+      'https://www.googleapis.com/auth/drive.readonly',
+      'https://www.googleapis.com/auth/documents'
     ];
     
     return this.auth.generateAuthUrl({
@@ -148,6 +180,80 @@ class GoogleWorkspaceBatchMCP {
       title: args.title,
       sheetTitle: args.sheetTitle || 'Sheet1',
       data: args.data || []
+    };
+  }
+
+  private validateCreateDocArgs(args: any): CreateDocumentRequest {
+    if (!args || typeof args !== 'object') {
+      throw new Error('Invalid arguments: expected object');
+    }
+    if (!args.title || typeof args.title !== 'string') {
+      throw new Error('Invalid title: expected non-empty string');
+    }
+    return {
+      title: args.title,
+      content: args.content || ''
+    };
+  }
+
+  private validateInsertTextArgs(args: any): InsertTextRequest {
+    if (!args || typeof args !== 'object') {
+      throw new Error('Invalid arguments: expected object');
+    }
+    if (!args.documentId || typeof args.documentId !== 'string') {
+      throw new Error('Invalid documentId: expected non-empty string');
+    }
+    if (!args.text || typeof args.text !== 'string') {
+      throw new Error('Invalid text: expected non-empty string');
+    }
+    return {
+      documentId: args.documentId,
+      text: args.text,
+      index: args.index || undefined
+    };
+  }
+
+  private validateReplaceTextArgs(args: any): ReplaceTextRequest {
+    if (!args || typeof args !== 'object') {
+      throw new Error('Invalid arguments: expected object');
+    }
+    if (!args.documentId || typeof args.documentId !== 'string') {
+      throw new Error('Invalid documentId: expected non-empty string');
+    }
+    if (!args.find || typeof args.find !== 'string') {
+      throw new Error('Invalid find: expected non-empty string');
+    }
+    if (typeof args.replace !== 'string') {
+      throw new Error('Invalid replace: expected string');
+    }
+    return {
+      documentId: args.documentId,
+      find: args.find,
+      replace: args.replace
+    };
+  }
+
+  private validateFormatTextArgs(args: any): FormatTextRequest {
+    if (!args || typeof args !== 'object') {
+      throw new Error('Invalid arguments: expected object');
+    }
+    if (!args.documentId || typeof args.documentId !== 'string') {
+      throw new Error('Invalid documentId: expected non-empty string');
+    }
+    if (typeof args.startIndex !== 'number' || args.startIndex < 0) {
+      throw new Error('Invalid startIndex: expected non-negative number');
+    }
+    if (typeof args.endIndex !== 'number' || args.endIndex <= args.startIndex) {
+      throw new Error('Invalid endIndex: expected number greater than startIndex');
+    }
+    if (!args.format || typeof args.format !== 'object') {
+      throw new Error('Invalid format: expected object');
+    }
+    return {
+      documentId: args.documentId,
+      startIndex: args.startIndex,
+      endIndex: args.endIndex,
+      format: args.format
     };
   }
 
@@ -213,9 +319,22 @@ class GoogleWorkspaceBatchMCP {
     };
   }
 
+  private validateDocumentIdArgs(args: any) {
+    if (!args || typeof args !== 'object') {
+      throw new Error('Invalid arguments: expected object');
+    }
+    if (!args.documentId || typeof args.documentId !== 'string') {
+      throw new Error('Invalid documentId: expected non-empty string');
+    }
+    return {
+      documentId: args.documentId
+    };
+  }
+
   private setupToolHandlers() {
     this.server.setRequestHandler(ListToolsRequestSchema, async () => ({
       tools: [
+        // Existing Google Sheets tools
         {
           name: 'gsheets_batch_update',
           description: 'Update multiple ranges in a Google Sheet in a single API call',
@@ -335,6 +454,162 @@ class GoogleWorkspaceBatchMCP {
             required: ['spreadsheetId', 'requests'],
           },
         },
+        // New Google Docs tools
+        {
+          name: 'gdocs_create_document',
+          description: 'Create a new Google Document',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              title: {
+                type: 'string',
+                description: 'Title for the new document',
+              },
+              content: {
+                type: 'string',
+                description: 'Initial content for the document (optional)',
+              },
+            },
+            required: ['title'],
+          },
+        },
+        {
+          name: 'gdocs_get_document',
+          description: 'Get the content of a Google Document',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              documentId: {
+                type: 'string',
+                description: 'The ID of the document to retrieve',
+              },
+            },
+            required: ['documentId'],
+          },
+        },
+        {
+          name: 'gdocs_insert_text',
+          description: 'Insert text into a Google Document',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              documentId: {
+                type: 'string',
+                description: 'The ID of the document',
+              },
+              text: {
+                type: 'string',
+                description: 'Text to insert',
+              },
+              index: {
+                type: 'number',
+                description: 'Position to insert text (optional, defaults to end)',
+              },
+            },
+            required: ['documentId', 'text'],
+          },
+        },
+        {
+          name: 'gdocs_append_text',
+          description: 'Append text to the end of a Google Document',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              documentId: {
+                type: 'string',
+                description: 'The ID of the document',
+              },
+              text: {
+                type: 'string',
+                description: 'Text to append',
+              },
+            },
+            required: ['documentId', 'text'],
+          },
+        },
+        {
+          name: 'gdocs_replace_text',
+          description: 'Find and replace text in a Google Document',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              documentId: {
+                type: 'string',
+                description: 'The ID of the document',
+              },
+              find: {
+                type: 'string',
+                description: 'Text to find',
+              },
+              replace: {
+                type: 'string',
+                description: 'Text to replace with',
+              },
+            },
+            required: ['documentId', 'find', 'replace'],
+          },
+        },
+        {
+          name: 'gdocs_format_text',
+          description: 'Apply formatting to text in a Google Document',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              documentId: {
+                type: 'string',
+                description: 'The ID of the document',
+              },
+              startIndex: {
+                type: 'number',
+                description: 'Start index of text to format',
+              },
+              endIndex: {
+                type: 'number',
+                description: 'End index of text to format',
+              },
+              format: {
+                type: 'object',
+                description: 'Formatting options',
+                properties: {
+                  bold: { type: 'boolean' },
+                  italic: { type: 'boolean' },
+                  underline: { type: 'boolean' },
+                  fontSize: { type: 'number' },
+                },
+              },
+            },
+            required: ['documentId', 'startIndex', 'endIndex', 'format'],
+          },
+        },
+        {
+          name: 'gdocs_set_heading',
+          description: 'Convert text to a heading in a Google Document',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              documentId: {
+                type: 'string',
+                description: 'The ID of the document',
+              },
+              startIndex: {
+                type: 'number',
+                description: 'Start index of text to make a heading',
+              },
+              endIndex: {
+                type: 'number',
+                description: 'End index of text to make a heading',
+              },
+              headingLevel: {
+                type: 'number',
+                description: 'Heading level (1-6)',
+                minimum: 1,
+                maximum: 6,
+              },
+            },
+            required: ['documentId', 'startIndex', 'endIndex', 'headingLevel'],
+          },
+        },
+        // Existing auth and drive tools
         {
           name: 'gsheets_get_auth_url',
           description: 'Get Google OAuth authorization URL for initial setup',
@@ -414,6 +689,7 @@ class GoogleWorkspaceBatchMCP {
     this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
       try {
         switch (request.params.name) {
+          // Existing Google Sheets handlers
           case 'gsheets_batch_update':
             const batchArgs = this.validateBatchUpdateArgs(request.params.arguments);
             return this.handleBatchUpdate(batchArgs);
@@ -430,6 +706,42 @@ class GoogleWorkspaceBatchMCP {
             const formatArgs = this.validateFormatArgs(request.params.arguments);
             return this.handleFormatCells(formatArgs);
           
+          // New Google Docs handlers
+          case 'gdocs_create_document':
+            const createDocArgs = this.validateCreateDocArgs(request.params.arguments);
+            return this.handleCreateDocument(createDocArgs);
+          
+          case 'gdocs_get_document':
+            const getDocArgs = this.validateDocumentIdArgs(request.params.arguments);
+            return this.handleGetDocument(getDocArgs);
+          
+          case 'gdocs_insert_text':
+            const insertArgs = this.validateInsertTextArgs(request.params.arguments);
+            return this.handleInsertText(insertArgs);
+          
+          case 'gdocs_append_text':
+            const appendTextArgs = this.validateInsertTextArgs(request.params.arguments);
+            return this.handleAppendText(appendTextArgs);
+          
+          case 'gdocs_replace_text':
+            const replaceArgs = this.validateReplaceTextArgs(request.params.arguments);
+            return this.handleReplaceText(replaceArgs);
+          
+          case 'gdocs_format_text':
+            const formatTextArgs = this.validateFormatTextArgs(request.params.arguments);
+            return this.handleFormatText(formatTextArgs);
+          
+          case 'gdocs_set_heading':
+            const headingArgs = {
+              ...this.validateFormatTextArgs(request.params.arguments),
+              headingLevel: (request.params.arguments as any)?.headingLevel
+            };
+            if (!headingArgs.headingLevel || headingArgs.headingLevel < 1 || headingArgs.headingLevel > 6) {
+              throw new Error('Invalid headingLevel: expected number between 1 and 6');
+            }
+            return this.handleSetHeading(headingArgs);
+          
+          // Existing auth and drive handlers
           case 'gsheets_get_auth_url':
             return this.handleGetAuthUrl();
           
@@ -469,6 +781,7 @@ class GoogleWorkspaceBatchMCP {
     });
   }
 
+  // Existing Google Sheets handlers (unchanged)
   private async handleGetAuthUrl() {
     try {
       const url = this.getAuthUrl();
@@ -857,6 +1170,384 @@ class GoogleWorkspaceBatchMCP {
     }
   }
 
+  // New Google Docs handlers
+  private async handleCreateDocument(args: CreateDocumentRequest) {
+    try {
+      const response = await this.docs.documents.create({
+        requestBody: {
+          title: args.title,
+        },
+      });
+
+      const documentId = response.data.documentId!;
+
+      // Add initial content if provided
+      if (args.content && args.content.trim()) {
+        await this.docs.documents.batchUpdate({
+          documentId,
+          requestBody: {
+            requests: [
+              {
+                insertText: {
+                  location: {
+                    index: 1,
+                  },
+                  text: args.content,
+                },
+              },
+            ],
+          },
+        });
+      }
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify({
+              success: true,
+              documentId,
+              url: `https://docs.google.com/document/d/${documentId}/edit`,
+              title: args.title,
+            }, null, 2),
+          },
+        ],
+      };
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `Error creating document: ${error}`,
+          },
+        ],
+        isError: true,
+      };
+    }
+  }
+
+  private async handleGetDocument(args: { documentId: string }) {
+    try {
+      const response = await this.docs.documents.get({
+        documentId: args.documentId,
+      });
+
+      const doc = response.data;
+      
+      // Extract text content from the document
+      let content = '';
+      if (doc.body && doc.body.content) {
+        for (const element of doc.body.content) {
+          if (element.paragraph && element.paragraph.elements) {
+            for (const elem of element.paragraph.elements) {
+              if (elem.textRun && elem.textRun.content) {
+                content += elem.textRun.content;
+              }
+            }
+          }
+        }
+      }
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `Document: ${doc.title}\n\nContent:\n${content}`,
+          },
+        ],
+      };
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `Error getting document: ${error}`,
+          },
+        ],
+        isError: true,
+      };
+    }
+  }
+
+  private async handleInsertText(args: InsertTextRequest) {
+    try {
+      // If no index specified, get document length to append at end
+      let insertIndex = args.index;
+      
+      if (insertIndex === undefined) {
+        const doc = await this.docs.documents.get({
+          documentId: args.documentId,
+        });
+        
+        // Find the end index of the document
+        insertIndex = 1; // Start at beginning if we can't determine length
+        if (doc.data.body && doc.data.body.content) {
+          for (const element of doc.data.body.content) {
+            if (element.endIndex) {
+              insertIndex = Math.max(insertIndex, element.endIndex - 1);
+            }
+          }
+        }
+      }
+
+      const response = await this.docs.documents.batchUpdate({
+        documentId: args.documentId,
+        requestBody: {
+          requests: [
+            {
+              insertText: {
+                location: {
+                  index: insertIndex,
+                },
+                text: args.text,
+              },
+            },
+          ],
+        },
+      });
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify({
+              success: true,
+              insertedAt: insertIndex,
+              textLength: args.text.length,
+            }, null, 2),
+          },
+        ],
+      };
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `Error inserting text: ${error}`,
+          },
+        ],
+        isError: true,
+      };
+    }
+  }
+
+  private async handleAppendText(args: InsertTextRequest) {
+    try {
+      // Get document to find the end
+      const doc = await this.docs.documents.get({
+        documentId: args.documentId,
+      });
+      
+      // Find the end index of the document
+      let endIndex = 1;
+      if (doc.data.body && doc.data.body.content) {
+        for (const element of doc.data.body.content) {
+          if (element.endIndex) {
+            endIndex = Math.max(endIndex, element.endIndex - 1);
+          }
+        }
+      }
+
+      const response = await this.docs.documents.batchUpdate({
+        documentId: args.documentId,
+        requestBody: {
+          requests: [
+            {
+              insertText: {
+                location: {
+                  index: endIndex,
+                },
+                text: args.text,
+              },
+            },
+          ],
+        },
+      });
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify({
+              success: true,
+              appendedAt: endIndex,
+              textLength: args.text.length,
+            }, null, 2),
+          },
+        ],
+      };
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `Error appending text: ${error}`,
+          },
+        ],
+        isError: true,
+      };
+    }
+  }
+
+  private async handleReplaceText(args: ReplaceTextRequest) {
+    try {
+      const response = await this.docs.documents.batchUpdate({
+        documentId: args.documentId,
+        requestBody: {
+          requests: [
+            {
+              replaceAllText: {
+                containsText: {
+                  text: args.find,
+                  matchCase: true,
+                },
+                replaceText: args.replace,
+              },
+            },
+          ],
+        },
+      });
+
+      const replaceCount = response.data.replies?.[0]?.replaceAllText?.occurrencesChanged || 0;
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify({
+              success: true,
+              replacements: replaceCount,
+              find: args.find,
+              replace: args.replace,
+            }, null, 2),
+          },
+        ],
+      };
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `Error replacing text: ${error}`,
+          },
+        ],
+        isError: true,
+      };
+    }
+  }
+
+  private async handleFormatText(args: FormatTextRequest) {
+    try {
+      const textStyle: any = {};
+      
+      if (args.format.bold !== undefined) {
+        textStyle.bold = args.format.bold;
+      }
+      if (args.format.italic !== undefined) {
+        textStyle.italic = args.format.italic;
+      }
+      if (args.format.underline !== undefined) {
+        textStyle.underline = args.format.underline;
+      }
+      if (args.format.fontSize !== undefined) {
+        textStyle.fontSize = {
+          magnitude: args.format.fontSize,
+          unit: 'PT',
+        };
+      }
+
+      const response = await this.docs.documents.batchUpdate({
+        documentId: args.documentId,
+        requestBody: {
+          requests: [
+            {
+              updateTextStyle: {
+                range: {
+                  startIndex: args.startIndex,
+                  endIndex: args.endIndex,
+                },
+                textStyle,
+                fields: Object.keys(textStyle).join(','),
+              },
+            },
+          ],
+        },
+      });
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify({
+              success: true,
+              formattedRange: `${args.startIndex}-${args.endIndex}`,
+              appliedFormat: args.format,
+            }, null, 2),
+          },
+        ],
+      };
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `Error formatting text: ${error}`,
+          },
+        ],
+        isError: true,
+      };
+    }
+  }
+
+  private async handleSetHeading(args: FormatTextRequest & { headingLevel: number }) {
+    try {
+      const namedStyleType = `HEADING_${args.headingLevel}` as any;
+
+      const response = await this.docs.documents.batchUpdate({
+        documentId: args.documentId,
+        requestBody: {
+          requests: [
+            {
+              updateParagraphStyle: {
+                range: {
+                  startIndex: args.startIndex,
+                  endIndex: args.endIndex,
+                },
+                paragraphStyle: {
+                  namedStyleType,
+                },
+                fields: 'namedStyleType',
+              },
+            },
+          ],
+        },
+      });
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify({
+              success: true,
+              headingLevel: args.headingLevel,
+              formattedRange: `${args.startIndex}-${args.endIndex}`,
+            }, null, 2),
+          },
+        ],
+      };
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `Error setting heading: ${error}`,
+          },
+        ],
+        isError: true,
+      };
+    }
+  }
+
   private a1ToGridRange(a1Range: string): sheets_v4.Schema$GridRange {
     // Simple A1 to GridRange conversion
     // This is a simplified version - you'd want a more robust parser
@@ -896,48 +1587,6 @@ class GoogleWorkspaceBatchMCP {
   }
 }
 
-// Usage example for your KPI dashboard
-const exampleUsage = `
-// Instead of 40+ individual calls, you could do:
-
-await mcp.call('gsheets_batch_update', {
-  spreadsheetId: '1D-FzyQrGLwOSAzcL9z-Sk3KCuWGLhZRSqfMNK-xmTi0',
-  updates: [
-    {
-      range: 'A1:B13',
-      values: [
-        ['Mama\\'s and Papas - Top KPIs Dashboard'],
-        ['Data Period: May 25, 2025 - June 23, 2025 (30 days)'],
-        [''],
-        ['EXECUTIVE SUMMARY'],
-        ['Metric', 'Value'],
-        ['Total Sessions', '2,287,839'],
-        ['Total Transactions', '27,565'],
-        ['Total Revenue (£)', '£4,834,482'],
-        ['Conversion Rate', '1.20%'],
-        ['Average Order Value (£)', '£207.24'],
-        ['New Users', '827,212'],
-        ['Active Users', '1,753,621'],
-        ['Sessions per User', '1.23']
-      ]
-    },
-    {
-      range: 'A15:F25',
-      values: [
-        ['PERFORMANCE BY DEVICE & OS'],
-        ['Device', 'OS', 'Sessions', 'Transactions', 'Revenue (£)', 'Conversion Rate'],
-        ['Mobile', 'iOS', '1,495,172', '19,046', '£3,115,943', '1.27%'],
-        ['Mobile', 'Android', '421,794', '4,386', '£665,205', '1.04%'],
-        ['Desktop', 'Windows', '164,594', '2,139', '£591,662', '1.30%'],
-        // ... etc
-      ]
-    }
-  ]
-});
-
-// This would reduce 40+ calls to just 1-3 calls!
-`;
-
 // Start the server with error handling
 // ES module way to check if this is the main module
 import { fileURLToPath } from 'url';
@@ -949,7 +1598,7 @@ const __dirname = dirname(__filename);
 if (process.argv[1] === __filename) {
   console.error('Starting MCP server...');
   try {
-    const server = new GoogleWorkspaceBatchMCP();
+    const server = new GoogleWorkspaceMCP();
     server.run().catch((error) => {
       console.error('Server run error:', error);
       process.exit(1);
@@ -960,4 +1609,4 @@ if (process.argv[1] === __filename) {
   }
 }
 
-export { GoogleWorkspaceBatchMCP };
+export { GoogleWorkspaceMCP };
