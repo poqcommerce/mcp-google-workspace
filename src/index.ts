@@ -83,6 +83,26 @@ interface GetRevisionsRequest {
   maxResults?: number;
 }
 
+interface ExportFileRequest {
+  fileId: string;
+  mimeType: string;
+}
+
+interface BatchExportRequest {
+  fileIds: string[];
+  format: 'pdf' | 'docx' | 'xlsx' | 'pptx';
+}
+
+interface ListFolderTreeRequest {
+  folderId: string;
+  recursive?: boolean;
+  includeMetadata?: boolean;
+}
+
+interface ListPermissionsRequest {
+  fileId: string;
+}
+
 class GoogleWorkspaceMCP {
   private server: Server;
   private auth: OAuth2Client;
@@ -474,6 +494,64 @@ class GoogleWorkspaceMCP {
     return {
       fileId: args.fileId,
       maxResults: args.maxResults || 20
+    };
+  }
+
+  private validateExportFileArgs(args: any): ExportFileRequest {
+    if (!args || typeof args !== 'object') {
+      throw new Error('Invalid arguments: expected object');
+    }
+    if (!args.fileId || typeof args.fileId !== 'string') {
+      throw new Error('Invalid fileId: expected non-empty string');
+    }
+    if (!args.mimeType || typeof args.mimeType !== 'string') {
+      throw new Error('Invalid mimeType: expected non-empty string');
+    }
+    return {
+      fileId: args.fileId,
+      mimeType: args.mimeType
+    };
+  }
+
+  private validateBatchExportArgs(args: any): BatchExportRequest {
+    if (!args || typeof args !== 'object') {
+      throw new Error('Invalid arguments: expected object');
+    }
+    if (!Array.isArray(args.fileIds) || args.fileIds.length === 0) {
+      throw new Error('Invalid fileIds: expected non-empty array');
+    }
+    if (!args.format || !['pdf', 'docx', 'xlsx', 'pptx'].includes(args.format)) {
+      throw new Error('Invalid format: expected one of: pdf, docx, xlsx, pptx');
+    }
+    return {
+      fileIds: args.fileIds,
+      format: args.format
+    };
+  }
+
+  private validateListFolderTreeArgs(args: any): ListFolderTreeRequest {
+    if (!args || typeof args !== 'object') {
+      throw new Error('Invalid arguments: expected object');
+    }
+    if (!args.folderId || typeof args.folderId !== 'string') {
+      throw new Error('Invalid folderId: expected non-empty string');
+    }
+    return {
+      folderId: args.folderId,
+      recursive: args.recursive !== false, // Default to true
+      includeMetadata: args.includeMetadata === true
+    };
+  }
+
+  private validateListPermissionsArgs(args: any): ListPermissionsRequest {
+    if (!args || typeof args !== 'object') {
+      throw new Error('Invalid arguments: expected object');
+    }
+    if (!args.fileId || typeof args.fileId !== 'string') {
+      throw new Error('Invalid fileId: expected non-empty string');
+    }
+    return {
+      fileId: args.fileId
     };
   }
 
@@ -954,6 +1032,80 @@ class GoogleWorkspaceMCP {
             required: ['fileId'],
           },
         },
+        {
+          name: 'gdrive_export_file',
+          description: 'Export a Google Workspace file to a specific format (PDF, Word, Excel, etc.)',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              fileId: {
+                type: 'string',
+                description: 'ID of the file to export',
+              },
+              mimeType: {
+                type: 'string',
+                description: 'Target MIME type (e.g., "application/pdf", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")',
+              },
+            },
+            required: ['fileId', 'mimeType'],
+          },
+        },
+        {
+          name: 'gdrive_batch_export',
+          description: 'Export multiple files to a specific format at once',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              fileIds: {
+                type: 'array',
+                description: 'Array of file IDs to export',
+                items: { type: 'string' }
+              },
+              format: {
+                type: 'string',
+                description: 'Export format: pdf, docx, xlsx, or pptx',
+                enum: ['pdf', 'docx', 'xlsx', 'pptx']
+              },
+            },
+            required: ['fileIds', 'format'],
+          },
+        },
+        {
+          name: 'gdrive_list_folder_tree',
+          description: 'List all files in a folder, optionally recursive with metadata',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              folderId: {
+                type: 'string',
+                description: 'ID of the folder to list',
+              },
+              recursive: {
+                type: 'boolean',
+                description: 'Recursively list subfolders (default: true)',
+              },
+              includeMetadata: {
+                type: 'boolean',
+                description: 'Include detailed metadata for each file (default: false)',
+              },
+            },
+            required: ['folderId'],
+          },
+        },
+        {
+          name: 'gdrive_list_permissions',
+          description: 'List all permissions (who has access) for a file or folder',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              fileId: {
+                type: 'string',
+                description: 'ID of the file or folder',
+              },
+            },
+            required: ['fileId'],
+          },
+        },
       ],
     }));
 
@@ -1058,6 +1210,22 @@ class GoogleWorkspaceMCP {
           case 'gdrive_get_revisions':
             const revisionsArgs = this.validateGetRevisionsArgs(request.params.arguments);
             return this.handleDriveGetRevisions(revisionsArgs);
+
+          case 'gdrive_export_file':
+            const exportArgs = this.validateExportFileArgs(request.params.arguments);
+            return this.handleDriveExportFile(exportArgs);
+
+          case 'gdrive_batch_export':
+            const batchExportArgs = this.validateBatchExportArgs(request.params.arguments);
+            return this.handleDriveBatchExport(batchExportArgs);
+
+          case 'gdrive_list_folder_tree':
+            const listTreeArgs = this.validateListFolderTreeArgs(request.params.arguments);
+            return this.handleDriveListFolderTree(listTreeArgs);
+
+          case 'gdrive_list_permissions':
+            const permissionsArgs = this.validateListPermissionsArgs(request.params.arguments);
+            return this.handleDriveListPermissions(permissionsArgs);
 
           default:
             throw new Error(`Unknown tool: ${request.params.name}`);
@@ -1606,6 +1774,237 @@ class GoogleWorkspaceMCP {
           {
             type: 'text',
             text: `Error getting revisions: ${error}`,
+          },
+        ],
+        isError: true,
+      };
+    }
+  }
+
+  private async handleDriveExportFile(args: ExportFileRequest) {
+    try {
+      const response = await this.drive.files.export({
+        fileId: args.fileId,
+        mimeType: args.mimeType,
+      }, {
+        responseType: 'arraybuffer'
+      });
+
+      // Convert to base64 for transmission
+      const buffer = Buffer.from(response.data as ArrayBuffer);
+      const base64 = buffer.toString('base64');
+      const sizeInBytes = buffer.length;
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify({
+              success: true,
+              fileId: args.fileId,
+              mimeType: args.mimeType,
+              sizeInBytes,
+              sizeFormatted: `${(sizeInBytes / 1024).toFixed(2)} KB`,
+              base64Data: base64.substring(0, 100) + '... (truncated for display)',
+              note: 'Full base64 data available but truncated in output. Use this for downloads.'
+            }, null, 2),
+          },
+        ],
+      };
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `Error exporting file: ${error}`,
+          },
+        ],
+        isError: true,
+      };
+    }
+  }
+
+  private async handleDriveBatchExport(args: BatchExportRequest) {
+    try {
+      const mimeTypeMap = {
+        pdf: 'application/pdf',
+        docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation'
+      };
+
+      const mimeType = mimeTypeMap[args.format];
+      const results = {
+        success: [] as { fileId: string; size: number }[],
+        failed: [] as { fileId: string; error: string }[]
+      };
+
+      for (const fileId of args.fileIds) {
+        try {
+          const response = await this.drive.files.export({
+            fileId,
+            mimeType,
+          }, {
+            responseType: 'arraybuffer'
+          });
+
+          const buffer = Buffer.from(response.data as ArrayBuffer);
+          results.success.push({
+            fileId,
+            size: buffer.length
+          });
+        } catch (error) {
+          results.failed.push({
+            fileId,
+            error: error instanceof Error ? error.message : String(error)
+          });
+        }
+      }
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify({
+              success: true,
+              format: args.format,
+              mimeType,
+              exportedCount: results.success.length,
+              failedCount: results.failed.length,
+              totalSize: results.success.reduce((sum, r) => sum + r.size, 0),
+              details: results
+            }, null, 2),
+          },
+        ],
+      };
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `Error in batch export: ${error}`,
+          },
+        ],
+        isError: true,
+      };
+    }
+  }
+
+  private async handleDriveListFolderTree(args: ListFolderTreeRequest) {
+    try {
+      const listFilesRecursive = async (folderId: string, path: string = ''): Promise<any[]> => {
+        const query = `'${folderId}' in parents and trashed=false`;
+        const fields = args.includeMetadata
+          ? 'files(id, name, mimeType, size, createdTime, modifiedTime, owners, webViewLink)'
+          : 'files(id, name, mimeType)';
+
+        const response = await this.drive.files.list({
+          q: query,
+          fields,
+          pageSize: 1000,
+        });
+
+        const files = response.data.files || [];
+        const results: any[] = [];
+
+        for (const file of files) {
+          if (!file.id || !file.name) continue; // Skip files without ID or name
+
+          const filePath = path ? `${path}/${file.name}` : file.name;
+          const fileInfo: any = {
+            id: file.id,
+            name: file.name,
+            path: filePath,
+            type: file.mimeType,
+          };
+
+          if (args.includeMetadata) {
+            fileInfo.size = file.size;
+            fileInfo.created = file.createdTime;
+            fileInfo.modified = file.modifiedTime;
+            fileInfo.owner = file.owners?.[0]?.emailAddress;
+            fileInfo.url = file.webViewLink;
+          }
+
+          results.push(fileInfo);
+
+          // Recursively list subfolders
+          if (args.recursive && file.mimeType === 'application/vnd.google-apps.folder') {
+            const subFiles = await listFilesRecursive(file.id, filePath);
+            results.push(...subFiles);
+          }
+        }
+
+        return results;
+      };
+
+      const allFiles = await listFilesRecursive(args.folderId);
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify({
+              success: true,
+              folderId: args.folderId,
+              totalFiles: allFiles.length,
+              recursive: args.recursive,
+              includeMetadata: args.includeMetadata,
+              files: allFiles
+            }, null, 2),
+          },
+        ],
+      };
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `Error listing folder tree: ${error}`,
+          },
+        ],
+        isError: true,
+      };
+    }
+  }
+
+  private async handleDriveListPermissions(args: ListPermissionsRequest) {
+    try {
+      const response = await this.drive.permissions.list({
+        fileId: args.fileId,
+        fields: 'permissions(id, type, role, emailAddress, domain, displayName, expirationTime, deleted)',
+      });
+
+      const permissions = response.data.permissions || [];
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify({
+              success: true,
+              fileId: args.fileId,
+              permissionCount: permissions.length,
+              permissions: permissions.map(p => ({
+                id: p.id,
+                type: p.type, // user, group, domain, anyone
+                role: p.role, // owner, organizer, fileOrganizer, writer, commenter, reader
+                email: p.emailAddress,
+                domain: p.domain,
+                displayName: p.displayName,
+                expirationTime: p.expirationTime,
+                deleted: p.deleted
+              }))
+            }, null, 2),
+          },
+        ],
+      };
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `Error listing permissions: ${error}`,
           },
         ],
         isError: true,
