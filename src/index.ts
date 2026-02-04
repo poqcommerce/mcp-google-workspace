@@ -18,11 +18,13 @@ interface BatchUpdateRequest {
 interface CreateSheetRequest {
   title: string;
   sheetTitle?: string;
+  parentFolderId?: string;
 }
 
 interface CreateDocumentRequest {
   title: string;
   content?: string;
+  parentFolderId?: string;
 }
 
 interface InsertTextRequest {
@@ -47,6 +49,38 @@ interface FormatTextRequest {
     underline?: boolean;
     fontSize?: number;
   };
+}
+
+interface MoveFileRequest {
+  fileId: string;
+  targetFolderId: string;
+}
+
+interface BatchMoveRequest {
+  fileIds: string[];
+  targetFolderId: string;
+}
+
+interface CreateFolderRequest {
+  name: string;
+  parentFolderId?: string;
+}
+
+interface CopyFolderRequest {
+  sourceFolderId: string;
+  targetParentFolderId?: string;
+  newName?: string;
+}
+
+interface SearchContentRequest {
+  query: string;
+  folderId?: string;
+  maxResults?: number;
+}
+
+interface GetRevisionsRequest {
+  fileId: string;
+  maxResults?: number;
 }
 
 class GoogleWorkspaceMCP {
@@ -89,7 +123,7 @@ class GoogleWorkspaceMCP {
         this.auth = new OAuth2Client({
           clientId,
           clientSecret,
-          redirectUri: 'urn:ietf:wg:oauth:2.0:oob', // For desktop apps
+          redirectUri: 'http://localhost:3000/oauth/callback', // Modern OAuth flow
         });
 
         // Set the refresh token if available
@@ -118,10 +152,10 @@ class GoogleWorkspaceMCP {
   private getAuthUrl(): string {
     const scopes = [
       'https://www.googleapis.com/auth/spreadsheets',
-      'https://www.googleapis.com/auth/drive.readonly',
+      'https://www.googleapis.com/auth/drive.file',  // Changed from drive.readonly to drive.file for write access
       'https://www.googleapis.com/auth/documents'
     ];
-    
+
     return this.auth.generateAuthUrl({
       access_type: 'offline',
       scope: scopes,
@@ -176,10 +210,14 @@ class GoogleWorkspaceMCP {
     if (!args.title || typeof args.title !== 'string') {
       throw new Error('Invalid title: expected non-empty string');
     }
+    if (args.parentFolderId && typeof args.parentFolderId !== 'string') {
+      throw new Error('Invalid parentFolderId: expected string');
+    }
     return {
       title: args.title,
       sheetTitle: args.sheetTitle || 'Sheet1',
-      data: args.data || []
+      data: args.data || [],
+      parentFolderId: args.parentFolderId
     };
   }
 
@@ -190,9 +228,13 @@ class GoogleWorkspaceMCP {
     if (!args.title || typeof args.title !== 'string') {
       throw new Error('Invalid title: expected non-empty string');
     }
+    if (args.parentFolderId && typeof args.parentFolderId !== 'string') {
+      throw new Error('Invalid parentFolderId: expected string');
+    }
     return {
       title: args.title,
-      content: args.content || ''
+      content: args.content || '',
+      parentFolderId: args.parentFolderId
     };
   }
 
@@ -331,6 +373,110 @@ class GoogleWorkspaceMCP {
     };
   }
 
+  private validateMoveFileArgs(args: any): MoveFileRequest {
+    if (!args || typeof args !== 'object') {
+      throw new Error('Invalid arguments: expected object');
+    }
+    if (!args.fileId || typeof args.fileId !== 'string') {
+      throw new Error('Invalid fileId: expected non-empty string');
+    }
+    if (!args.targetFolderId || typeof args.targetFolderId !== 'string') {
+      throw new Error('Invalid targetFolderId: expected non-empty string');
+    }
+    return {
+      fileId: args.fileId,
+      targetFolderId: args.targetFolderId
+    };
+  }
+
+  private validateBatchMoveArgs(args: any): BatchMoveRequest {
+    if (!args || typeof args !== 'object') {
+      throw new Error('Invalid arguments: expected object');
+    }
+    if (!Array.isArray(args.fileIds) || args.fileIds.length === 0) {
+      throw new Error('Invalid fileIds: expected non-empty array');
+    }
+    if (!args.targetFolderId || typeof args.targetFolderId !== 'string') {
+      throw new Error('Invalid targetFolderId: expected non-empty string');
+    }
+    return {
+      fileIds: args.fileIds,
+      targetFolderId: args.targetFolderId
+    };
+  }
+
+  private validateCreateFolderArgs(args: any): CreateFolderRequest {
+    if (!args || typeof args !== 'object') {
+      throw new Error('Invalid arguments: expected object');
+    }
+    if (!args.name || typeof args.name !== 'string') {
+      throw new Error('Invalid name: expected non-empty string');
+    }
+    if (args.parentFolderId && typeof args.parentFolderId !== 'string') {
+      throw new Error('Invalid parentFolderId: expected string');
+    }
+    return {
+      name: args.name,
+      parentFolderId: args.parentFolderId
+    };
+  }
+
+  private validateCopyFolderArgs(args: any): CopyFolderRequest {
+    if (!args || typeof args !== 'object') {
+      throw new Error('Invalid arguments: expected object');
+    }
+    if (!args.sourceFolderId || typeof args.sourceFolderId !== 'string') {
+      throw new Error('Invalid sourceFolderId: expected non-empty string');
+    }
+    if (args.targetParentFolderId && typeof args.targetParentFolderId !== 'string') {
+      throw new Error('Invalid targetParentFolderId: expected string');
+    }
+    if (args.newName && typeof args.newName !== 'string') {
+      throw new Error('Invalid newName: expected string');
+    }
+    return {
+      sourceFolderId: args.sourceFolderId,
+      targetParentFolderId: args.targetParentFolderId,
+      newName: args.newName
+    };
+  }
+
+  private validateSearchContentArgs(args: any): SearchContentRequest {
+    if (!args || typeof args !== 'object') {
+      throw new Error('Invalid arguments: expected object');
+    }
+    if (!args.query || typeof args.query !== 'string') {
+      throw new Error('Invalid query: expected non-empty string');
+    }
+    if (args.folderId && typeof args.folderId !== 'string') {
+      throw new Error('Invalid folderId: expected string');
+    }
+    if (args.maxResults && typeof args.maxResults !== 'number') {
+      throw new Error('Invalid maxResults: expected number');
+    }
+    return {
+      query: args.query,
+      folderId: args.folderId,
+      maxResults: args.maxResults || 100
+    };
+  }
+
+  private validateGetRevisionsArgs(args: any): GetRevisionsRequest {
+    if (!args || typeof args !== 'object') {
+      throw new Error('Invalid arguments: expected object');
+    }
+    if (!args.fileId || typeof args.fileId !== 'string') {
+      throw new Error('Invalid fileId: expected non-empty string');
+    }
+    if (args.maxResults && typeof args.maxResults !== 'number') {
+      throw new Error('Invalid maxResults: expected number');
+    }
+    return {
+      fileId: args.fileId,
+      maxResults: args.maxResults || 20
+    };
+  }
+
   private setupToolHandlers() {
     this.server.setRequestHandler(ListToolsRequestSchema, async () => ({
       tools: [
@@ -392,6 +538,10 @@ class GoogleWorkspaceMCP {
                   type: 'array',
                   items: { type: 'string' }
                 }
+              },
+              parentFolderId: {
+                type: 'string',
+                description: 'ID of the parent folder to create the spreadsheet in (optional, defaults to root)',
               },
             },
             required: ['title', 'data'],
@@ -468,6 +618,10 @@ class GoogleWorkspaceMCP {
               content: {
                 type: 'string',
                 description: 'Initial content for the document (optional)',
+              },
+              parentFolderId: {
+                type: 'string',
+                description: 'ID of the parent folder to create the document in (optional, defaults to root)',
               },
             },
             required: ['title'],
@@ -683,6 +837,123 @@ class GoogleWorkspaceMCP {
             required: ['fileId'],
           },
         },
+        {
+          name: 'gdrive_move_file',
+          description: 'Move a file to a different folder in Google Drive',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              fileId: {
+                type: 'string',
+                description: 'ID of the file to move',
+              },
+              targetFolderId: {
+                type: 'string',
+                description: 'ID of the target folder to move the file to',
+              },
+            },
+            required: ['fileId', 'targetFolderId'],
+          },
+        },
+        {
+          name: 'gdrive_batch_move',
+          description: 'Move multiple files to a folder at once (bulk operation)',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              fileIds: {
+                type: 'array',
+                description: 'Array of file IDs to move',
+                items: { type: 'string' }
+              },
+              targetFolderId: {
+                type: 'string',
+                description: 'ID of the target folder',
+              },
+            },
+            required: ['fileIds', 'targetFolderId'],
+          },
+        },
+        {
+          name: 'gdrive_create_folder',
+          description: 'Create a new folder in Google Drive',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              name: {
+                type: 'string',
+                description: 'Name of the folder to create',
+              },
+              parentFolderId: {
+                type: 'string',
+                description: 'ID of the parent folder (optional, defaults to root)',
+              },
+            },
+            required: ['name'],
+          },
+        },
+        {
+          name: 'gdrive_copy_folder',
+          description: 'Recursively copy a folder and all its contents',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              sourceFolderId: {
+                type: 'string',
+                description: 'ID of the folder to copy',
+              },
+              targetParentFolderId: {
+                type: 'string',
+                description: 'ID of the parent folder for the copy (optional, defaults to root)',
+              },
+              newName: {
+                type: 'string',
+                description: 'Name for the copied folder (optional, defaults to "Copy of [original name]")',
+              },
+            },
+            required: ['sourceFolderId'],
+          },
+        },
+        {
+          name: 'gdrive_search_content',
+          description: 'Search for text within file contents (fullText search)',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              query: {
+                type: 'string',
+                description: 'Text to search for within file contents',
+              },
+              folderId: {
+                type: 'string',
+                description: 'Limit search to specific folder (optional)',
+              },
+              maxResults: {
+                type: 'number',
+                description: 'Maximum number of results to return (default: 100)',
+              },
+            },
+            required: ['query'],
+          },
+        },
+        {
+          name: 'gdrive_get_revisions',
+          description: 'Get version history/revisions for a file',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              fileId: {
+                type: 'string',
+                description: 'ID of the file',
+              },
+              maxResults: {
+                type: 'number',
+                description: 'Maximum number of revisions to return (default: 20)',
+              },
+            },
+            required: ['fileId'],
+          },
+        },
       ],
     }));
 
@@ -763,7 +1034,31 @@ class GoogleWorkspaceMCP {
           case 'gdrive_get_file_info':
             const infoArgs = this.validateDriveReadArgs(request.params.arguments);
             return this.handleDriveGetFileInfo(infoArgs);
-          
+
+          case 'gdrive_move_file':
+            const moveArgs = this.validateMoveFileArgs(request.params.arguments);
+            return this.handleDriveMoveFile(moveArgs);
+
+          case 'gdrive_batch_move':
+            const batchMoveArgs = this.validateBatchMoveArgs(request.params.arguments);
+            return this.handleDriveBatchMove(batchMoveArgs);
+
+          case 'gdrive_create_folder':
+            const createFolderArgs = this.validateCreateFolderArgs(request.params.arguments);
+            return this.handleDriveCreateFolder(createFolderArgs);
+
+          case 'gdrive_copy_folder':
+            const copyFolderArgs = this.validateCopyFolderArgs(request.params.arguments);
+            return this.handleDriveCopyFolder(copyFolderArgs);
+
+          case 'gdrive_search_content':
+            const searchContentArgs = this.validateSearchContentArgs(request.params.arguments);
+            return this.handleDriveSearchContent(searchContentArgs);
+
+          case 'gdrive_get_revisions':
+            const revisionsArgs = this.validateGetRevisionsArgs(request.params.arguments);
+            return this.handleDriveGetRevisions(revisionsArgs);
+
           default:
             throw new Error(`Unknown tool: ${request.params.name}`);
         }
@@ -974,6 +1269,350 @@ class GoogleWorkspaceMCP {
     }
   }
 
+  private async handleDriveMoveFile(args: MoveFileRequest) {
+    try {
+      // Get current parents
+      const file = await this.drive.files.get({
+        fileId: args.fileId,
+        fields: 'id, name, parents',
+      });
+
+      const previousParents = file.data.parents?.join(',');
+
+      // Move to new folder
+      const response = await this.drive.files.update({
+        fileId: args.fileId,
+        addParents: args.targetFolderId,
+        removeParents: previousParents,
+        fields: 'id, name, parents',
+      });
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify({
+              success: true,
+              fileId: args.fileId,
+              fileName: response.data.name,
+              previousParents: previousParents?.split(',') || [],
+              newParent: args.targetFolderId,
+            }, null, 2),
+          },
+        ],
+      };
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `Error moving file: ${error}`,
+          },
+        ],
+        isError: true,
+      };
+    }
+  }
+
+  private async handleDriveBatchMove(args: BatchMoveRequest) {
+    try {
+      const results = {
+        success: [] as string[],
+        failed: [] as { fileId: string; error: string }[]
+      };
+
+      for (const fileId of args.fileIds) {
+        try {
+          // Get current parents
+          const file = await this.drive.files.get({
+            fileId,
+            fields: 'id, name, parents',
+          });
+
+          const previousParents = file.data.parents?.join(',');
+
+          // Move to new folder
+          await this.drive.files.update({
+            fileId,
+            addParents: args.targetFolderId,
+            removeParents: previousParents,
+            fields: 'id, parents',
+          });
+
+          results.success.push(fileId);
+        } catch (error) {
+          results.failed.push({
+            fileId,
+            error: error instanceof Error ? error.message : String(error)
+          });
+        }
+      }
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify({
+              success: true,
+              movedCount: results.success.length,
+              failedCount: results.failed.length,
+              targetFolderId: args.targetFolderId,
+              details: results
+            }, null, 2),
+          },
+        ],
+      };
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `Error in batch move: ${error}`,
+          },
+        ],
+        isError: true,
+      };
+    }
+  }
+
+  private async handleDriveCreateFolder(args: CreateFolderRequest) {
+    try {
+      const fileMetadata: any = {
+        name: args.name,
+        mimeType: 'application/vnd.google-apps.folder'
+      };
+
+      if (args.parentFolderId) {
+        fileMetadata.parents = [args.parentFolderId];
+      }
+
+      const response = await this.drive.files.create({
+        requestBody: fileMetadata,
+        fields: 'id, name, parents, webViewLink',
+      });
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify({
+              success: true,
+              folderId: response.data.id,
+              name: response.data.name,
+              parentFolderId: args.parentFolderId || 'root',
+              url: response.data.webViewLink,
+            }, null, 2),
+          },
+        ],
+      };
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `Error creating folder: ${error}`,
+          },
+        ],
+        isError: true,
+      };
+    }
+  }
+
+  private async handleDriveCopyFolder(args: CopyFolderRequest) {
+    try {
+      // Get source folder info
+      const sourceFolder = await this.drive.files.get({
+        fileId: args.sourceFolderId,
+        fields: 'id, name',
+      });
+
+      const newFolderName = args.newName || `Copy of ${sourceFolder.data.name}`;
+
+      // Create new folder
+      const newFolderMetadata: any = {
+        name: newFolderName,
+        mimeType: 'application/vnd.google-apps.folder'
+      };
+
+      if (args.targetParentFolderId) {
+        newFolderMetadata.parents = [args.targetParentFolderId];
+      }
+
+      const newFolder = await this.drive.files.create({
+        requestBody: newFolderMetadata,
+        fields: 'id, name, webViewLink',
+      });
+
+      const newFolderId = newFolder.data.id!;
+
+      // Get all files in source folder
+      const files = await this.drive.files.list({
+        q: `'${args.sourceFolderId}' in parents and trashed=false`,
+        fields: 'files(id, name, mimeType)',
+      });
+
+      const copiedFiles = {
+        folders: 0,
+        files: 0,
+        errors: [] as string[]
+      };
+
+      // Copy each file/folder
+      for (const file of files.data.files || []) {
+        try {
+          if (file.mimeType === 'application/vnd.google-apps.folder') {
+            // Recursively copy subfolder
+            await this.handleDriveCopyFolder({
+              sourceFolderId: file.id!,
+              targetParentFolderId: newFolderId,
+            });
+            copiedFiles.folders++;
+          } else {
+            // Copy file - works for all file types including Google Workspace files
+            const copiedFile = await this.drive.files.copy({
+              fileId: file.id!,
+              requestBody: {
+                name: file.name,
+                parents: [newFolderId]
+              },
+              fields: 'id, name',
+            });
+
+            if (copiedFile.data.id) {
+              copiedFiles.files++;
+            } else {
+              copiedFiles.errors.push(`Failed to copy ${file.name}: No file ID returned`);
+            }
+          }
+        } catch (error) {
+          const errorMsg = error instanceof Error ? error.message : String(error);
+          copiedFiles.errors.push(`Failed to copy ${file.name}: ${errorMsg}`);
+        }
+      }
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify({
+              success: true,
+              newFolderId: newFolderId,
+              newFolderName: newFolderName,
+              url: newFolder.data.webViewLink,
+              sourceFilesFound: files.data.files?.length || 0,
+              copiedFiles: copiedFiles.files,
+              copiedFolders: copiedFiles.folders,
+              errors: copiedFiles.errors.length > 0 ? copiedFiles.errors : undefined,
+            }, null, 2),
+          },
+        ],
+      };
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `Error copying folder: ${error}`,
+          },
+        ],
+        isError: true,
+      };
+    }
+  }
+
+  private async handleDriveSearchContent(args: SearchContentRequest) {
+    try {
+      let query = `fullText contains '${args.query}' and trashed=false`;
+
+      if (args.folderId) {
+        query += ` and '${args.folderId}' in parents`;
+      }
+
+      const response = await this.drive.files.list({
+        q: query,
+        pageSize: args.maxResults,
+        fields: 'files(id, name, mimeType, modifiedTime, webViewLink, owners)',
+        orderBy: 'modifiedTime desc',
+      });
+
+      const files = response.data.files || [];
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify({
+              success: true,
+              query: args.query,
+              resultCount: files.length,
+              results: files.map(f => ({
+                id: f.id,
+                name: f.name,
+                type: f.mimeType,
+                modified: f.modifiedTime,
+                url: f.webViewLink,
+                owner: f.owners?.[0]?.emailAddress
+              }))
+            }, null, 2),
+          },
+        ],
+      };
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `Error searching content: ${error}`,
+          },
+        ],
+        isError: true,
+      };
+    }
+  }
+
+  private async handleDriveGetRevisions(args: GetRevisionsRequest) {
+    try {
+      const response = await this.drive.revisions.list({
+        fileId: args.fileId,
+        pageSize: args.maxResults,
+        fields: 'revisions(id, modifiedTime, lastModifyingUser, size, originalFilename, keepForever)',
+      });
+
+      const revisions = response.data.revisions || [];
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify({
+              success: true,
+              fileId: args.fileId,
+              revisionCount: revisions.length,
+              revisions: revisions.map(r => ({
+                id: r.id,
+                modifiedTime: r.modifiedTime,
+                modifiedBy: r.lastModifyingUser?.displayName || r.lastModifyingUser?.emailAddress,
+                size: r.size,
+                filename: r.originalFilename,
+                keepForever: r.keepForever
+              }))
+            }, null, 2),
+          },
+        ],
+      };
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `Error getting revisions: ${error}`,
+          },
+        ],
+        isError: true,
+      };
+    }
+  }
+
   private async handleBatchUpdate(args: BatchUpdateRequest) {
     try {
       const batchUpdateRequest: sheets_v4.Schema$BatchUpdateValuesRequest = {
@@ -1020,6 +1659,7 @@ class GoogleWorkspaceMCP {
     title: string;
     sheetTitle: string;
     data: any[][];
+    parentFolderId?: string;
   }) {
     try {
       // Create new spreadsheet
@@ -1053,6 +1693,25 @@ class GoogleWorkspaceMCP {
         });
       }
 
+      // Move to parent folder if specified
+      if (args.parentFolderId) {
+        // Get current parents
+        const file = await this.drive.files.get({
+          fileId: spreadsheetId,
+          fields: 'parents',
+        });
+
+        const previousParents = file.data.parents?.join(',');
+
+        // Move to new folder
+        await this.drive.files.update({
+          fileId: spreadsheetId,
+          addParents: args.parentFolderId,
+          removeParents: previousParents,
+          fields: 'id, parents',
+        });
+      }
+
       return {
         content: [
           {
@@ -1062,6 +1721,7 @@ class GoogleWorkspaceMCP {
               spreadsheetId,
               url: `https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit`,
               rowsAdded: args.data?.length || 0,
+              parentFolderId: args.parentFolderId || 'root',
             }, null, 2),
           },
         ],
@@ -1200,6 +1860,25 @@ class GoogleWorkspaceMCP {
         });
       }
 
+      // Move to parent folder if specified
+      if (args.parentFolderId) {
+        // Get current parents
+        const file = await this.drive.files.get({
+          fileId: documentId,
+          fields: 'parents',
+        });
+
+        const previousParents = file.data.parents?.join(',');
+
+        // Move to new folder
+        await this.drive.files.update({
+          fileId: documentId,
+          addParents: args.parentFolderId,
+          removeParents: previousParents,
+          fields: 'id, parents',
+        });
+      }
+
       return {
         content: [
           {
@@ -1209,6 +1888,7 @@ class GoogleWorkspaceMCP {
               documentId,
               url: `https://docs.google.com/document/d/${documentId}/edit`,
               title: args.title,
+              parentFolderId: args.parentFolderId || 'root',
             }, null, 2),
           },
         ],
