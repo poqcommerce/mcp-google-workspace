@@ -172,7 +172,7 @@ class GoogleWorkspaceMCP {
   private getAuthUrl(): string {
     const scopes = [
       'https://www.googleapis.com/auth/spreadsheets',
-      'https://www.googleapis.com/auth/drive.file',  // Changed from drive.readonly to drive.file for write access
+      'https://www.googleapis.com/auth/drive',  // Full Drive access - can see all files
       'https://www.googleapis.com/auth/documents'
     ];
 

@@ -647,6 +647,36 @@ Complete the collaboration workflow with permission management:
 
 ---
 
+### Phase 1.5: Upload & File Transfer 📤 **ESSENTIAL**
+
+Enable local file upload to complete the Drive workflow:
+
+- [ ] **`gdrive_upload_file`** - Upload local file to Drive
+  - Upload any file type (PDF, images, documents, etc.)
+  - Specify target folder and optional new name
+  - Automatic MIME type detection
+
+- [ ] **`gdrive_upload_folder`** - Upload local folder recursively
+  - Preserve folder structure
+  - Batch upload multiple files
+  - Progress tracking for large uploads
+
+- [ ] **`gdrive_update_file_content`** - Replace existing file
+  - Update file content from local file
+  - Maintain file ID and metadata
+  - Version control friendly
+
+- [ ] **`gdrive_batch_upload`** - Upload multiple files at once
+  - Bulk upload operations
+  - Error handling per file
+  - Resume capability for failed uploads
+
+**Impact:** Completes the full Drive workflow (local → Drive → organize → export)
+**Use Cases:** Backup automation, content migration, bulk file uploads, automated deployments
+**Technical Notes:** Requires file streaming, chunking for large files, resumable uploads
+
+---
+
 ### Phase 2: Organization & Workflow
 
 Practical tools for file management at scale:
