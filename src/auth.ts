@@ -9,7 +9,8 @@ const REDIRECT_URI = 'http://localhost:3000/oauth/callback';
 const SCOPES = [
   'https://www.googleapis.com/auth/spreadsheets',
   'https://www.googleapis.com/auth/drive',  // Full Drive access - can see all files
-  'https://www.googleapis.com/auth/documents'
+  'https://www.googleapis.com/auth/documents',
+  'https://www.googleapis.com/auth/presentations',
 ];
 
 async function authenticate() {
@@ -36,6 +37,7 @@ async function authenticate() {
   console.log('  ✓ Google Sheets (read/write)');
   console.log('  ✓ Google Drive (full access - all files)');
   console.log('  ✓ Google Docs (read/write)');
+  console.log('  ✓ Google Slides (read/write)');
   console.log('Opening browser for authorization...');
 
   // Create a local server to handle the callback
@@ -66,6 +68,7 @@ async function authenticate() {
                     <li>✓ Google Sheets (read/write)</li>
                     <li>✓ Google Drive (full access - all files)</li>
                     <li>✓ Google Docs (read/write)</li>
+                    <li>✓ Google Slides (read/write)</li>
                   </ul>
                 </div>
               </body>
@@ -77,6 +80,7 @@ async function authenticate() {
           console.log('  ✓ Google Sheets (read/write)');
           console.log('  ✓ Google Drive (full access - all files)');
           console.log('  ✓ Google Docs (read/write)');
+          console.log('  ✓ Google Slides (read/write)');
           console.log('\nAdd this environment variable to your .env file:');
           console.log(`\n  GOOGLE_REFRESH_TOKEN="${tokens.refresh_token}"\n`);
           console.log('Then restart the MCP server (or Claude Desktop if using with that).\n');
