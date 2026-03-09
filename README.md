@@ -1,789 +1,389 @@
 # Google Workspace MCP Server
 
-A comprehensive Model Context Protocol (MCP) server providing programmatic access to Google Workspace (Drive, Docs, Sheets) for automation, document management, and workflow integration.
+An MCP server that gives Claude (or any MCP-compatible AI) full read/write access to Google Sheets, Docs, Drive, and Slides. 51 tools, batch operations throughout, and a template workflow for branded presentations.
 
-**Version:** 1.2.0
-**Last Updated:** 2026-02-04
-**Total Tools:** 27
+**Version:** 2.0.0 | **Last Updated:** 2026-03-09 | **Tools:** 51
 
 ---
 
-## Features Overview
+## Setup
 
-### 📄 Google Docs - 7 Tools
-Create, read, edit documents with full formatting support
+There are two parts: a **one-time Google Cloud setup** (needs someone with Google Workspace admin access), and **per-user setup** (done by each person who wants to use the MCP). If your org has already completed Part A, skip straight to Part B — you just need the Client ID and Client Secret from whoever set it up.
 
-### 📊 Google Sheets - 5 Tools
-Create, populate, update spreadsheets with batch operations
+### Part A: Google Cloud project (once per org)
 
-### 📁 Google Drive - 13 Tools
-Complete file and folder management with advanced search
+This creates the "app" that lets Claude talk to Google Workspace. It only needs to be done once — after that, everyone on the team uses the same Client ID and Client Secret.
 
-### 🔐 Authentication - 2 Tools
-Modern OAuth 2.0 with secure token management
+**Who does this?** Someone who can create projects in your organisation's [Google Cloud Console](https://console.cloud.google.com/). This is usually an IT admin or whoever manages your Google Workspace. If you're not sure, ask your IT team to follow these steps.
 
----
+1. Go to [console.cloud.google.com](https://console.cloud.google.com/) and sign in with your work Google account
+2. Click the project dropdown (top-left) and select **New Project**. Name it something like "Claude MCP" and click **Create**
+3. Make sure the new project is selected, then go to **APIs & Services > Library** (left sidebar)
+4. Search for and **enable** each of these four APIs (click each one, then click "Enable"):
+   - **Google Drive API**
+   - **Google Docs API**
+   - **Google Sheets API**
+   - **Google Slides API**
+5. Go to **APIs & Services > Credentials** (left sidebar)
+6. Click **+ Create Credentials > OAuth client ID**
+   - If prompted to configure the OAuth consent screen first, choose **Internal** (restricts to your org's Google accounts) or **External** (for testing with personal accounts), fill in the required fields (app name, support email), and save
+   - For Application type, select **Desktop app**
+   - Give it a name (e.g. "Claude MCP") and click **Create**
+7. You'll see a **Client ID** and **Client Secret**. These are shared across your team — every user needs the same pair. Distribute them securely (e.g. via a password manager or private internal channel, not a public wiki). They authenticate the app itself and should be kept confidential to your organisation
 
-## Quick Start
+### Part B: Per-user setup
 
-### 1. Installation
+You need two things before starting:
+- The **Client ID** and **Client Secret** from Part A (ask whoever set up the Google Cloud project)
+- [Node.js](https://nodejs.org/) v18 or later installed on your machine
+
+#### 1. Install
+
+Open a terminal and run:
 
 ```bash
-git clone <repository-url>
+git clone https://github.com/poqcommerce/mcp-google-workspace
 cd mcp-google-workspace
 npm install
 npm run build
 ```
 
-### 2. Google Cloud Setup
+#### 2. Create your credentials file
 
-1. Go to [Google Cloud Console](https://console.cloud.google.com/)
-2. Create a new project
-3. Enable these APIs:
-   - Google Drive API
-   - Google Docs API
-   - Google Sheets API
-4. Create OAuth 2.0 credentials (Desktop app type)
-5. Download credentials
-
-### 3. Configure Environment
-
-Create `.env` file:
+In the `mcp-google-workspace` folder, create a file called `.env` and paste in the Client ID and Client Secret you were given:
 
 ```bash
 GOOGLE_CLIENT_ID=your-client-id.apps.googleusercontent.com
 GOOGLE_CLIENT_SECRET=your-client-secret
-GOOGLE_REFRESH_TOKEN=your-refresh-token
+GOOGLE_REFRESH_TOKEN=
 ```
 
-### 4. Authenticate
+Leave `GOOGLE_REFRESH_TOKEN` blank for now — the next step fills it in.
+
+#### 3. Authenticate with your Google account
 
 ```bash
 npm run auth
 ```
 
-This opens your browser, requests permissions, and generates a refresh token. Copy the token to your `.env` file.
+This opens your browser and asks you to sign in with **your own** Google account and grant permission. Each user authenticates individually — the Client ID/Secret identify the app, but this step links it to *your* Google account and files.
 
-### 5. Start Server
+After you approve, it prints a **refresh token** in the terminal. Copy the token and paste it into your `.env` file after `GOOGLE_REFRESH_TOKEN=`.
 
-```bash
-npm start
-```
+> **Note:** The refresh token is personal to you. Don't share it — it grants access to your Google Drive, Docs, Sheets, and Slides.
 
-Or for development:
-```bash
-npm run dev
-```
+#### 4. Connect to Claude
 
----
+Add the MCP server to your Claude config file. The location depends on your setup:
 
-## Complete Tool Reference
+- **Claude Code (CLI):** `~/.claude/mcp.json`
+- **Claude Desktop (macOS):** `~/Library/Application Support/Claude/claude_desktop_config.json`
 
-### Google Sheets (5 tools)
+Add this to the file (create it if it doesn't exist), replacing the paths and credentials with your own:
 
-#### `gsheets_create_and_populate`
-Create a spreadsheet with data in one operation.
-
-```javascript
+```json
 {
-  title: "Q1 Sales Report",
-  data: [
-    ["Product", "Sales", "Region"],
-    ["Widget A", "1250", "North"]
-  ],
-  parentFolderId: "optional-folder-id"
-}
-```
-
-#### `gsheets_batch_update`
-Update multiple ranges in a single API call (40x faster).
-
-```javascript
-{
-  spreadsheetId: "sheet-id",
-  updates: [
-    {
-      range: "A1:B10",
-      values: [["Header", "Value"]]
+  "mcpServers": {
+    "google-workspace": {
+      "command": "/full/path/to/mcp-google-workspace/start-mcp.sh",
+      "env": {
+        "GOOGLE_CLIENT_ID": "your-client-id",
+        "GOOGLE_CLIENT_SECRET": "your-client-secret",
+        "GOOGLE_REFRESH_TOKEN": "your-personal-refresh-token"
+      }
     }
-  ]
-}
-```
-
-#### `gsheets_append_rows`
-Add rows to the end of a sheet.
-
-```javascript
-{
-  spreadsheetId: "sheet-id",
-  range: "Sheet1!A:Z",
-  values: [["New", "Row", "Data"]]
-}
-```
-
-#### `gsheets_format_cells`
-Apply styling to cell ranges.
-
-```javascript
-{
-  spreadsheetId: "sheet-id",
-  requests: [{
-    range: "A1:B1",
-    format: { textFormat: { bold: true } }
-  }]
-}
-```
-
-#### `gsheets_get_auth_url`
-Get OAuth authorization URL for setup.
-
----
-
-### Google Docs (7 tools)
-
-#### `gdocs_create_document`
-Create a new document.
-
-```javascript
-{
-  title: "Project Proposal",
-  content: "# Summary\n\nThis proposal...",
-  parentFolderId: "optional-folder-id"
-}
-```
-
-#### `gdocs_get_document`
-Read document content.
-
-```javascript
-{
-  documentId: "doc-id"
-}
-```
-
-#### `gdocs_insert_text`
-Insert text at specific position.
-
-```javascript
-{
-  documentId: "doc-id",
-  text: "New paragraph\n",
-  index: 100  // optional, defaults to end
-}
-```
-
-#### `gdocs_append_text`
-Add text to document end.
-
-```javascript
-{
-  documentId: "doc-id",
-  text: "Additional content"
-}
-```
-
-#### `gdocs_replace_text`
-Find and replace throughout document.
-
-```javascript
-{
-  documentId: "doc-id",
-  find: "old text",
-  replace: "new text"
-}
-```
-
-#### `gdocs_format_text`
-Apply text formatting.
-
-```javascript
-{
-  documentId: "doc-id",
-  startIndex: 0,
-  endIndex: 20,
-  format: {
-    bold: true,
-    italic: false,
-    underline: true,
-    fontSize: 16
   }
 }
 ```
 
-#### `gdocs_set_heading`
-Convert text to heading (H1-H6).
+> **Tip:** Use the full absolute path to `start-mcp.sh` (e.g. `/Users/yourname/mcp-google-workspace/start-mcp.sh`). Relative paths won't work.
 
-```javascript
-{
-  documentId: "doc-id",
-  startIndex: 0,
-  endIndex: 15,
-  headingLevel: 1  // 1-6
-}
-```
+#### 5. Verify it works
+
+Restart Claude, then try asking: "Search my Google Drive for recent documents." If Claude lists your files, you're connected.
 
 ---
 
-### Google Drive (13 tools)
+## Tools Reference
 
-#### File Operations
+### Google Sheets — 12 tools
 
-##### `gdrive_search`
-Search for files with powerful queries.
+| Tool | Description |
+|------|-------------|
+| `gsheets_create_and_populate` | Create a spreadsheet with data in one call |
+| `gsheets_read_data` | Read data from a range |
+| `gsheets_batch_update` | Update multiple ranges in a single API call |
+| `gsheets_append_rows` | Add rows to the end of a sheet |
+| `gsheets_format_cells` | Apply styling (bold, colours, borders, number formats) |
+| `gsheets_get_spreadsheet_info` | Get sheet names, row/column counts, metadata |
+| `gsheets_add_sheet` | Add a new sheet tab |
+| `gsheets_delete_sheet` | Remove a sheet tab |
+| `gsheets_rename_sheet` | Rename a sheet tab |
+| `gsheets_duplicate_sheet` | Copy a sheet within or between spreadsheets |
+| `gsheets_insert_delete_dimensions` | Insert or delete rows/columns |
+| `gsheets_sort_range` | Sort data by one or more columns |
 
-```javascript
-// By name
-{ query: "name contains 'budget'" }
+### Google Docs — 7 tools
 
-// By type
-{ query: "mimeType='application/pdf'" }
+| Tool | Description |
+|------|-------------|
+| `gdocs_create_document` | Create a new document (optionally in a folder with initial content) |
+| `gdocs_get_document` | Read document content as plain text |
+| `gdocs_insert_text` | Insert text at a specific index |
+| `gdocs_append_text` | Append text to the end |
+| `gdocs_replace_text` | Find and replace throughout the document |
+| `gdocs_format_text` | Apply bold, italic, underline, font size |
+| `gdocs_set_heading` | Convert text to heading (H1–H6) |
 
-// In folder
-{ query: "'folder-id' in parents" }
+### Google Drive — 14 tools
 
-// Combined
-{ query: "name contains 'report' and mimeType='application/vnd.google-apps.document'" }
-```
+| Tool | Description |
+|------|-------------|
+| `gdrive_search` | Search by name, type, folder, or combined queries |
+| `gdrive_search_content` | Full-text search within file contents |
+| `gdrive_read_file` | Read file contents (Docs, Sheets, text files) |
+| `gdrive_get_file_info` | Get file metadata (size, dates, parents) |
+| `gdrive_copy_file` | Copy any file (preserves themes/layouts for Slides) |
+| `gdrive_move_file` | Move a file to a different folder |
+| `gdrive_batch_move` | Move multiple files at once |
+| `gdrive_create_folder` | Create a new folder |
+| `gdrive_copy_folder` | Recursively copy a folder and all contents |
+| `gdrive_list_folder_tree` | List all files recursively with metadata |
+| `gdrive_get_revisions` | Get version history |
+| `gdrive_export_file` | Export to PDF, DOCX, XLSX, PPTX |
+| `gdrive_batch_export` | Bulk export multiple files |
+| `gdrive_list_permissions` | See who has access to a file/folder |
 
-##### `gdrive_read_file`
-Read file contents (Docs, Sheets, text files).
+### Google Slides — 17 tools
 
-```javascript
-{
-  fileId: "file-id"
-}
-```
+| Tool | Description |
+|------|-------------|
+| `gslides_create_presentation` | Create a new presentation |
+| `gslides_get_presentation` | Get full structure: slides, elements, text, notes |
+| `gslides_add_slide` | Add a slide with a predefined layout |
+| `gslides_delete_slide` | Remove a slide |
+| `gslides_insert_text` | Insert text into a shape or placeholder |
+| `gslides_replace_text` | Find and replace across slides |
+| `gslides_speaker_notes` | Read or write speaker notes |
+| `gslides_add_shape` | Add rectangles, ellipses, text boxes, etc. |
+| `gslides_add_image` | Insert an image from a URL |
+| `gslides_add_table` | Create a table on a slide |
+| `gslides_insert_table_text` | Populate a specific table cell |
+| `gslides_format_text` | Format text in shapes or individual table cells |
+| `gslides_batch_format_text` | Format many shapes/cells in a single API call |
+| `gslides_format_table` | Set column widths, row heights, alignment, header colours |
+| `gslides_create_bullets` | Convert text to bulleted or numbered lists |
+| `gslides_update_page_properties` | Set slide background colour |
+| `gslides_get_thumbnail` | Get a PNG thumbnail URL for a slide |
 
-##### `gdrive_get_file_info`
-Get file metadata.
+### Authentication — 2 tools
 
-```javascript
-{
-  fileId: "file-id"
-}
-```
-
-##### `gdrive_move_file`
-Move file to different folder.
-
-```javascript
-{
-  fileId: "file-id",
-  targetFolderId: "target-folder-id"
-}
-```
-
-##### `gdrive_batch_move`
-Move multiple files at once.
-
-```javascript
-{
-  fileIds: ["id1", "id2", "id3"],
-  targetFolderId: "target-folder-id"
-}
-```
-
-#### Folder Operations
-
-##### `gdrive_create_folder`
-Create new folder.
-
-```javascript
-{
-  name: "Project Alpha",
-  parentFolderId: "optional-parent-id"
-}
-```
-
-##### `gdrive_copy_folder`
-Recursively copy folder and contents.
-
-```javascript
-{
-  sourceFolderId: "source-id",
-  targetParentFolderId: "optional-parent-id",
-  newName: "optional-new-name"
-}
-```
-
-##### `gdrive_list_folder_tree`
-List all files in folder (recursive).
-
-```javascript
-{
-  folderId: "folder-id",
-  recursive: true,
-  includeMetadata: true
-}
-```
-
-Returns complete file tree with paths.
-
-#### Advanced Operations
-
-##### `gdrive_search_content`
-Search within file contents (fullText).
-
-```javascript
-{
-  query: "machine learning",
-  folderId: "optional-folder-id",
-  maxResults: 100
-}
-```
-
-##### `gdrive_get_revisions`
-Get version history for file.
-
-```javascript
-{
-  fileId: "file-id",
-  maxResults: 20
-}
-```
-
-##### `gdrive_export_file`
-Export file to specific format.
-
-```javascript
-{
-  fileId: "file-id",
-  mimeType: "application/pdf"
-}
-```
-
-**Common MIME types:**
-- PDF: `application/pdf`
-- Word: `application/vnd.openxmlformats-officedocument.wordprocessingml.document`
-- Excel: `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`
-- PowerPoint: `application/vnd.openxmlformats-officedocument.presentationml.presentation`
-
-##### `gdrive_batch_export`
-Export multiple files at once.
-
-```javascript
-{
-  fileIds: ["id1", "id2", "id3"],
-  format: "pdf"  // pdf, docx, xlsx, pptx
-}
-```
-
-##### `gdrive_list_permissions`
-See who has access to file/folder.
-
-```javascript
-{
-  fileId: "file-id"
-}
-```
-
-Returns: type, role, email for each permission.
+| Tool | Description |
+|------|-------------|
+| `gsheets_get_auth_url` | Generate the OAuth consent URL |
+| `gsheets_set_auth_code` | Exchange auth code for a refresh token |
 
 ---
 
-### Authentication (2 tools)
+## Best Practices
 
-#### `gsheets_get_auth_url`
-Get OAuth URL for initial setup.
+### Use batch operations
 
-#### `gsheets_set_auth_code`
-Exchange auth code for tokens.
+The single biggest performance lever. Instead of 30 individual `gslides_format_text` calls, use `gslides_batch_format_text` with an array of operations — one API call instead of 30.
 
-```javascript
-{
-  code: "authorization-code-from-google"
-}
+Batch tools available:
+- **Sheets:** `gsheets_batch_update` (multi-range writes)
+- **Drive:** `gdrive_batch_move`, `gdrive_batch_export`
+- **Slides:** `gslides_batch_format_text` (text styling), `gslides_format_table` (column widths, alignment, backgrounds)
+
+### Work with IDs, not names
+
+Google Workspace uses file/object IDs everywhere. When creating files, capture the returned ID for subsequent operations. When working with slides, use `gslides_get_presentation` to discover element object IDs before trying to modify them.
+
+### Branded presentations via template copy
+
+The most reliable way to create branded presentations:
+
+1. `gdrive_copy_file` — copy a branded template (preserves theme, master slides, layouts, logos)
+2. `gslides_delete_slide` — remove template placeholder slides
+3. `gslides_add_slide` — add slides with branded layouts
+4. Populate and format content
+
+This is better than trying to set colours/fonts from scratch — the copy inherits the full theme.
+
+### Table creation workflow
+
+For well-formatted tables:
+
+1. `gslides_add_table` — create with position and overall dimensions
+2. `gslides_insert_table_text` — populate cells
+3. `gslides_format_table` — set column widths proportional to content (e.g. 25/75 for label/description), alignment, header background
+4. `gslides_batch_format_text` — apply font size, colour, bold to all cells in one call
+
+Key tips:
+- Set explicit column widths — don't rely on equal-width defaults
+- Choose font size based on row count (10–11pt for <12 rows, 9pt for 13–18 rows)
+- Use `contentAlignment: "TOP"` for multi-line cells
+- Header rows work well with a contrasting background + white bold text, 2–3pt larger than body
+
+### Re-authenticate after scope changes
+
+If you add a new Google API (e.g. enabling Slides for the first time), run `npm run auth` again to grant the new scope. The OAuth scopes are: `spreadsheets`, `drive`, `documents`, `presentations`.
+
+### Style consistency
+
+When reading documents (`gdocs_get_document`) or presentations (`gslides_get_presentation`), the MCP automatically detects the dominant text style — font family, font size, colour, bold/italic — and includes it in the response. This means Claude can see what formatting already exists and match it when adding new content.
+
+For example, when you say "add a section to this doc", Claude will see:
+
 ```
+Dominant body style: {"fontFamily":"Roboto","fontSize":11,"foregroundColor":{"red":0.2,"green":0.2,"blue":0.2}}
+Heading style: {"fontFamily":"Roboto","fontSize":16,"bold":true}
+```
+
+...and use those same properties when formatting the new text. No manual specification needed.
 
 ---
 
-## Common Workflows
+## Style Guides
 
-### Project Setup
+Style guides tell Claude *how* to format content — brand colours, font choices, table layout rules, slide conventions. They work alongside the automatic style detection: detection handles "match what's already there", while style guides handle "here's what it *should* look like".
 
-```javascript
-// Create folder structure
-const root = gdrive_create_folder({
-  name: "Project Alpha"
-});
+### How Claude reads style guides
 
-["Documents", "Data", "Reports"].forEach(name => {
-  gdrive_create_folder({
-    name,
-    parentFolderId: root.folderId
-  });
-});
+Claude reads instructions from `CLAUDE.md` files automatically at the start of every session. The key question is **where** you put the file, because that determines who sees it and when.
+
+| Location | Scope | Shared via git? | Use case |
+|----------|-------|-----------------|----------|
+| `CLAUDE.md` in a repo root | Anyone working in that repo | Yes | Project-specific conventions |
+| `~/.claude/CLAUDE.md` | One user, all their projects | No | Personal preferences |
+| `~/.claude/projects/<path>/CLAUDE.md` | One user, one project | No | Personal project overrides |
+
+All three levels are loaded together when they apply. If there's a conflict, be explicit about priority in the file itself.
+
+#### In this repo (MCP tool developers)
+
+If you're working *inside* this repo (developing the MCP tools themselves), add a `CLAUDE.md` to the repo root. It will apply to everyone who clones it.
+
+#### In other projects (MCP tool users)
+
+This is the more common case: you're working in a different repo (e.g. a board reports project, a data pipeline) and want Claude to follow your style guide when creating Google Workspace content.
+
+**Option 1: User-level (recommended starting point)**
+
+Add your style rules to `~/.claude/CLAUDE.md`. They'll apply to every Claude session you run, regardless of which project you're in. This is the simplest way to get consistent formatting across all your work.
+
+```markdown
+# ~/.claude/CLAUDE.md
+
+## Google Workspace Style Guide
+- Presentations: copy branded template (ID: your-template-id) before creating slides
+- Brand colours: dark purple rgb(0.106, 0.078, 0.392), white backgrounds
+- Tables: 25/75 column split, 9pt for dense tables, dark purple header with white text
+- Documents: use existing font/size (Claude detects this automatically)
+- Always use British English spelling
 ```
 
-### Bulk File Organization
+**Option 2: Team-wide (share via a dotfiles repo or onboarding doc)**
 
-```javascript
-// Search for files
-const files = gdrive_search({
-  query: "name contains 'Q1' and mimeType='application/pdf'"
-});
+Since `~/.claude/CLAUDE.md` isn't shared via git, the best way to standardise across a team is to publish the style guide content somewhere accessible (e.g. a shared doc, internal wiki, or dotfiles repo) and have each team member copy it into their own `~/.claude/CLAUDE.md`.
 
-// Move all at once
-gdrive_batch_move({
-  fileIds: files.map(f => f.id),
-  targetFolderId: "archive-folder-id"
-});
+Include a ready-to-paste block in your onboarding docs:
+
+```
+To set up Claude with our brand guidelines, create or edit ~/.claude/CLAUDE.md
+and paste the following:
+
+[your style guide content here]
 ```
 
-### Document Automation
+**Option 3: Per-project**
 
-```javascript
-// Create report
-const doc = gdocs_create_document({
-  title: "Weekly Report",
-  content: "# Weekly Report\n\n## Summary\n\n",
-  parentFolderId: "reports-folder-id"
-});
+If different projects need different styles, add a `CLAUDE.md` to each project repo. This is version-controlled and shared with the team via git, but only applies when someone is working in that specific repo.
 
-// Add content
-gdocs_append_text({
-  documentId: doc.documentId,
-  text: "Key metrics:\n- Revenue: $50K\n- Growth: 15%\n"
-});
-```
+### What to include in a style guide
 
-### Export and Backup
+A good style guide for MCP tools covers:
 
-```javascript
-// Get all docs in folder
-const files = gdrive_list_folder_tree({
-  folderId: "project-folder-id",
-  recursive: true
-});
+- **Brand colours** as RGB values (0–1 range for Google APIs)
+- **Font choices** and sizes for different contexts (body, headings, tables)
+- **Table layout rules** — column width ratios, alignment, header styling
+- **Template IDs** — which branded template to copy for new presentations
+- **Naming conventions** — file/folder naming patterns
+- **Workflow preferences** — e.g. "always create documents in the Projects folder"
 
-// Export all to PDF
-const docs = files.filter(f =>
-  f.type === 'application/vnd.google-apps.document'
-);
-
-gdrive_batch_export({
-  fileIds: docs.map(d => d.id),
-  format: 'pdf'
-});
-```
-
-### Content Discovery
-
-```javascript
-// Search within file contents
-const results = gdrive_search_content({
-  query: "budget proposal",
-  folderId: "search-folder-id"
-});
-
-// Check permissions for each
-results.forEach(file => {
-  const perms = gdrive_list_permissions({
-    fileId: file.id
-  });
-});
-```
-
-### Template Processing
-
-```javascript
-// Create from template
-const doc = gdocs_create_document({
-  title: "Customer Proposal - Acme Corp",
-  content: templateContent
-});
-
-// Customize
-gdocs_replace_text({
-  documentId: doc.documentId,
-  find: "{{CLIENT_NAME}}",
-  replace: "Acme Corporation"
-});
-```
+Keep it concise. Claude reads the entire file at session start, so shorter guides are more likely to be followed consistently. See [`docs/example-style-guide.md`](docs/example-style-guide.md) for a full example.
 
 ---
 
-## API Rate Limits
+## Project Structure
 
-### Google Drive API
-- Queries: 1,000 per 100 seconds
-- Requests: 20,000 per 100 seconds per user
-- Downloads: 10,000 per 100 seconds
+```
+mcp-google-workspace/
+├── src/
+│   ├── index.ts          # MCP server, handler dispatch
+│   ├── types.ts          # Shared interfaces
+│   ├── utils.ts          # Helpers (a1ToGridRange, response builders)
+│   ├── auth.ts           # Standalone OAuth flow (npm run auth)
+│   └── tools/
+│       ├── sheets.ts     # 12 tools
+│       ├── docs.ts       # 7 tools
+│       ├── drive.ts      # 14 tools
+│       ├── slides.ts     # 17 tools
+│       └── auth.ts       # 2 tools
+├── dist/                 # Compiled JS
+├── start-mcp.sh          # Launch script for MCP config
+├── .env                  # Credentials (not committed)
+├── package.json
+└── tsconfig.json
+```
 
-### Best Practices
-1. Use batch operations for >10 files
-2. Add delays between bulk operations
-3. Cache folder IDs to reduce queries
-4. Use pagination for large result sets
-
----
-
-## OAuth Scopes
-
-Required scopes:
-- `https://www.googleapis.com/auth/spreadsheets` - Sheets read/write
-- `https://www.googleapis.com/auth/drive.file` - Drive file operations
-- `https://www.googleapis.com/auth/documents` - Docs read/write
-
-**Note:** `drive.file` scope provides access to files created or opened by this app.
+Each `tools/*.ts` exports a `get*ToolDefinitions()` function and a handler class. The server iterates handlers in order — first non-null response wins.
 
 ---
 
 ## Troubleshooting
 
-### "Insufficient permissions" error
-**Solution:** Re-run `npm run auth` to refresh OAuth token with updated scopes.
-
-### "File not found" error
-**Solution:** Verify file ID and ensure file was created/opened by this app (drive.file scope limitation).
-
-### "Rate limit exceeded" error
-**Solution:** Add delays between API calls or reduce batch sizes.
-
-### OAuth redirect not working
-**Solution:** Ensure port 3000 is available. Uses `http://localhost:3000/oauth/callback`.
+| Problem | Solution |
+|---------|----------|
+| "Insufficient permissions" | Re-run `npm run auth` to refresh token with current scopes |
+| "File not found" | Verify file ID; check the file is accessible to your Google account |
+| "Rate limit exceeded" | Use batch operations; reduce request frequency |
+| OAuth redirect fails | Ensure port 3000 is free (`lsof -i :3000`) |
+| MCP tools not appearing | Check `start-mcp.sh` path in mcp.json; run `npm run build` |
+| Slides layout not found | Use `gslides_get_presentation` to check available layouts in the theme |
 
 ---
 
 ## Development
 
-### Commands
-
 ```bash
 npm run build     # Compile TypeScript
 npm run dev       # Watch mode
-npm run auth      # Run OAuth flow
-npm start         # Start server
-```
-
-### Project Structure
-
-```
-mcp-google-workspace/
-├── src/
-│   ├── index.ts       # Main MCP server
-│   └── auth.ts        # OAuth flow
-├── dist/              # Compiled JS
-├── .env               # Credentials
-├── package.json
-└── tsconfig.json
+npm run auth      # OAuth flow
+npm start         # Start server directly
 ```
 
 ---
 
 ## Version History
 
-### v1.2.0 - 2026-02-04
-- ✨ Added 8 new tools (batch move, folder ops, export, search, permissions)
-- 🔧 Fixed OAuth flow (deprecated OOB → modern localhost)
-- 📈 Now 27 total tools (was 19)
+### v2.0.0 — 2026-03-09
+- Added Google Slides support (17 tools)
+- Added `gdrive_copy_file` for template workflows
+- Added batch text formatting for Slides
+- Added table structure formatting (column widths, row heights, alignment, backgrounds)
+- 51 total tools (was 27)
 
-### v1.1.0 - 2026-02-04
-- ✨ Added `parentFolderId` to create files in folders
-- ✨ Added `gdrive_move_file`
-- 🔒 Updated OAuth scope to `drive.file`
+### v1.2.0 — 2026-02-04
+- Added 8 new Drive tools (batch move, folder ops, export, permissions)
+- Fixed OAuth flow (deprecated OOB to localhost redirect)
 
-### v1.0.0 - 2025
-- 🎉 Initial release
-- Sheets, Docs, Drive basic operations
-
----
-
-## Performance
-
-- **Batch operations:** 40x faster than individual API calls
-- **Recursive operations:** Process entire folder trees
-- **Export operations:** Bulk export hundreds of files
-- **Search operations:** Content search across thousands of files
+### v1.0.0 — 2025
+- Initial release: Sheets, Docs, Drive basics
 
 ---
 
-## Security
+**Built with:** TypeScript, Google APIs, Model Context Protocol SDK
 
-- ✅ Modern OAuth 2.0 with localhost redirect
-- ✅ Secure token storage in .env
-- ✅ Scoped permissions (only files created by app)
-- ❌ Never commit `.env` or credentials
-- 🔄 Rotate refresh tokens periodically
-
----
-
-## Support
-
-- **Documentation:** See `MCP_UPDATES.md` for detailed changes
-- **Tool Reference:** See `TOOLS_REFERENCE.md` for comprehensive docs
-- **Issues:** Report bugs via GitHub Issues
-- **API Docs:**
-  - [Google Sheets API](https://developers.google.com/sheets/api)
-  - [Google Drive API](https://developers.google.com/drive/api)
-  - [Google Docs API](https://developers.google.com/docs/api)
-
----
-
-## Roadmap
-
-### Phase 1: Collaboration & Sharing 🎯 **NEXT**
-
-Complete the collaboration workflow with permission management:
-
-- [ ] **`gdrive_share_file`** - Share files/folders with specific users or groups
-  - Grant reader, writer, or commenter access by email
-  - Essential for team collaboration workflows
-
-- [ ] **`gdrive_create_share_link`** - Generate shareable links
-  - Create public or domain-restricted links
-  - Set expiration dates and access levels
-
-- [ ] **`gdrive_update_permission`** - Modify existing permissions
-  - Change user roles (reader → writer)
-  - Update access settings
-
-- [ ] **`gdrive_remove_permission`** - Revoke access
-  - Remove specific users from files/folders
-  - Cleanup after project completion
-
-**Impact:** Completes permission management (we can read, now we can write)
-**Use Cases:** Team collaboration, controlled distribution, access management
-
----
-
-### Phase 1.5: Upload & File Transfer 📤 **ESSENTIAL**
-
-Enable local file upload to complete the Drive workflow:
-
-- [ ] **`gdrive_upload_file`** - Upload local file to Drive
-  - Upload any file type (PDF, images, documents, etc.)
-  - Specify target folder and optional new name
-  - Automatic MIME type detection
-
-- [ ] **`gdrive_upload_folder`** - Upload local folder recursively
-  - Preserve folder structure
-  - Batch upload multiple files
-  - Progress tracking for large uploads
-
-- [ ] **`gdrive_update_file_content`** - Replace existing file
-  - Update file content from local file
-  - Maintain file ID and metadata
-  - Version control friendly
-
-- [ ] **`gdrive_batch_upload`** - Upload multiple files at once
-  - Bulk upload operations
-  - Error handling per file
-  - Resume capability for failed uploads
-
-**Impact:** Completes the full Drive workflow (local → Drive → organize → export)
-**Use Cases:** Backup automation, content migration, bulk file uploads, automated deployments
-**Technical Notes:** Requires file streaming, chunking for large files, resumable uploads
-
----
-
-### Phase 2: Organization & Workflow
-
-Practical tools for file management at scale:
-
-- [ ] **`gdrive_batch_rename`** - Rename multiple files with patterns
-  - Sequential numbering (Doc_001, Doc_002...)
-  - Pattern-based naming with variables
-  - Standardize file naming conventions
-
-- [ ] **`gdrive_set_properties`** - Add custom metadata/tags
-  - Tag files with custom properties (status, priority, project)
-  - Enable advanced filtering and organization
-  - Track workflow states
-
-- [ ] **`gdrive_batch_set_properties`** - Tag multiple files at once
-  - Bulk metadata operations
-  - Workflow automation
-
-- [ ] **`gdrive_get_folder_stats`** - Analyze folder contents
-  - Total size, file counts, type breakdown
-  - Storage planning and monitoring
-  - Recursive statistics
-
-- [ ] **`gdrive_find_duplicates`** - Detect duplicate files
-  - Find duplicates by name, size, or content
-  - Storage cleanup and optimization
-  - Deduplication workflows
-
-**Impact:** Saves hours of manual file organization
-**Use Cases:** File standardization, workflow tracking, storage management
-
----
-
-### Phase 3: Advanced Features
-
-Power user features for sophisticated workflows:
-
-- [ ] **`gdocs_add_comment`** - Collaborative review workflow
-  - Add comments to specific text ranges
-  - Suggest edits and changes
-  - Track review notes
-
-- [ ] **`gdocs_list_comments`** - Track review progress
-  - Get all comments on a document
-  - Filter by resolved/unresolved
-  - Export review notes
-
-- [ ] **`gdocs_resolve_comment`** - Mark comments complete
-  - Close review items
-  - Track completion
-
-- [ ] **`gdocs_create_from_template`** - Template automation
-  - Create documents from templates
-  - Variable substitution ({{NAME}}, {{DATE}}, etc.)
-  - Automated document generation
-
-- [ ] **`gdrive_get_activity`** - File activity logs
-  - Track who accessed/modified files
-  - Compliance and audit trails
-  - Activity timeline
-
-**Impact:** Enables advanced automation and compliance
-**Use Cases:** Document review, templated content, audit trails
-
----
-
-### Future Considerations
-
-Additional capabilities under consideration:
-
-- **OCR & Text Extraction** - Extract text from images/scans
-- **Advanced Search Filters** - Search by date range, owner, multiple criteria
-- **Webhook Support** - Event notifications for file changes
-- **Quota Management** - Monitor API usage and limits
-- **Batch Operations** - Additional bulk operations (delete, copy, etc.)
-- **Drive Shortcuts** - Create and manage shortcuts
-- **Starred Files** - Manage starred/favorite files
-
----
-
-### Contributing to Roadmap
-
-Have ideas for new features? We welcome:
-- Feature requests via GitHub Issues
-- Use case descriptions
-- Pull requests with new tools
-- Documentation improvements
-
----
-
-## License
-
-MIT License - See LICENSE file
-
----
-
-## Contributing
-
-1. Fork the repository
-2. Create feature branch
-3. Add tests for new functionality
-4. Submit pull request
-
----
-
-**Built with:** TypeScript • Google APIs • Model Context Protocol SDK
-
-**Maintained by:** Your team name here
-
-**Status:** Production ready ✅
+**License:** MIT

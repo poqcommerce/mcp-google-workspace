@@ -221,7 +221,113 @@ export function getSlidesToolDefinitions(): ToolDefinition[] {
             },
           },
         },
-        required: ['presentationId', 'objectId', 'startIndex', 'endIndex', 'format'],
+        required: ['presentationId', 'objectId', 'format'],
+      },
+    },
+
+    // ── Phase 10: Batch operations ──────────────────────────────────────
+    {
+      name: 'gslides_batch_format_text',
+      description:
+        'Apply formatting to multiple text targets (shapes and/or table cells) in a single API call. ' +
+        'Much faster than calling gslides_format_text repeatedly.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          presentationId: { type: 'string', description: 'The ID of the presentation' },
+          operations: {
+            type: 'array',
+            description: 'Array of formatting operations',
+            items: {
+              type: 'object',
+              properties: {
+                objectId: { type: 'string', description: 'Object ID of the shape or table' },
+                startIndex: { type: 'number', description: 'Start character index (optional, omit for ALL)' },
+                endIndex: { type: 'number', description: 'End character index (optional, omit for ALL)' },
+                rowIndex: { type: 'number', description: 'Table row index (optional, for table cells)' },
+                columnIndex: { type: 'number', description: 'Table column index (optional, for table cells)' },
+                format: {
+                  type: 'object',
+                  description: 'Formatting options',
+                  properties: {
+                    bold: { type: 'boolean' },
+                    italic: { type: 'boolean' },
+                    underline: { type: 'boolean' },
+                    fontSize: { type: 'number', description: 'Font size in points' },
+                    fontFamily: { type: 'string' },
+                    foregroundColor: {
+                      type: 'object',
+                      description: '{ red, green, blue } values 0-1',
+                      properties: {
+                        red: { type: 'number' },
+                        green: { type: 'number' },
+                        blue: { type: 'number' },
+                      },
+                    },
+                  },
+                },
+              },
+              required: ['objectId', 'format'],
+            },
+          },
+        },
+        required: ['presentationId', 'operations'],
+      },
+    },
+
+    {
+      name: 'gslides_format_table',
+      description:
+        'Format a table: set column widths, row heights, cell background colors, and content alignment. ' +
+        'All properties are optional — include only what you want to change.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          presentationId: { type: 'string', description: 'The ID of the presentation' },
+          tableObjectId: { type: 'string', description: 'Object ID of the table' },
+          columnWidths: {
+            type: 'array',
+            description: 'Array of column widths in points (e.g. [150, 450] for a 2-column table). Must match column count.',
+            items: { type: 'number' },
+          },
+          rowHeights: {
+            type: 'array',
+            description: 'Array of minimum row heights in points. Use null/0 entries to skip rows.',
+            items: { type: 'number' },
+          },
+          contentAlignment: {
+            type: 'string',
+            description: 'Vertical content alignment for all cells: TOP, MIDDLE, or BOTTOM',
+            enum: ['TOP', 'MIDDLE', 'BOTTOM'],
+          },
+          headerRowBackgroundColor: {
+            type: 'object',
+            description: 'Background color for the first row (header) as { red, green, blue } values 0-1',
+            properties: {
+              red: { type: 'number' },
+              green: { type: 'number' },
+              blue: { type: 'number' },
+            },
+          },
+          bodyRowBackgroundColor: {
+            type: 'object',
+            description: 'Background color for non-header rows as { red, green, blue } values 0-1',
+            properties: {
+              red: { type: 'number' },
+              green: { type: 'number' },
+              blue: { type: 'number' },
+            },
+          },
+          totalRows: {
+            type: 'number',
+            description: 'Total number of rows in the table (needed for background color operations)',
+          },
+          totalColumns: {
+            type: 'number',
+            description: 'Total number of columns in the table (needed for background color operations)',
+          },
+        },
+        required: ['presentationId', 'tableObjectId'],
       },
     },
 
@@ -342,6 +448,103 @@ export function getSlidesToolDefinitions(): ToolDefinition[] {
   ];
 }
 
+// ── Style analysis helpers ────────────────────────────────────────────────────
+
+interface SlideStyleSample {
+  fontFamily?: string;
+  fontSize?: number;
+  bold?: boolean;
+  foregroundColor?: { red: number; green: number; blue: number };
+  charCount: number;
+}
+
+function extractSlidesStyles(slides: slides_v1.Schema$Page[]): {
+  dominantStyle: Record<string, any> | null;
+} {
+  const samples: SlideStyleSample[] = [];
+
+  for (const slide of slides) {
+    for (const el of slide.pageElements || []) {
+      const textElements = el.shape?.text?.textElements || [];
+      for (const te of textElements) {
+        const run = te.textRun;
+        if (!run?.content || !run.style) continue;
+
+        const text = run.content.replace(/\n/g, '');
+        if (text.length === 0) continue;
+
+        const ts = run.style;
+        const sample: SlideStyleSample = {
+          fontFamily: ts.fontFamily || ts.weightedFontFamily?.fontFamily || undefined,
+          fontSize: ts.fontSize?.magnitude || undefined,
+          bold: ts.bold || undefined,
+          charCount: text.length,
+        };
+
+        const fg = ts.foregroundColor?.opaqueColor?.rgbColor;
+        if (fg) {
+          sample.foregroundColor = {
+            red: Math.round((fg.red || 0) * 1000) / 1000,
+            green: Math.round((fg.green || 0) * 1000) / 1000,
+            blue: Math.round((fg.blue || 0) * 1000) / 1000,
+          };
+        }
+
+        samples.push(sample);
+      }
+    }
+  }
+
+  return { dominantStyle: pickDominantSlideStyle(samples) };
+}
+
+function pickDominantSlideStyle(samples: SlideStyleSample[]): Record<string, any> | null {
+  if (samples.length === 0) return null;
+
+  const fontMap = new Map<string, number>();
+  const sizeMap = new Map<number, number>();
+  const colorMap = new Map<string, { color: { red: number; green: number; blue: number }; count: number }>();
+  let boldChars = 0;
+  let totalChars = 0;
+
+  for (const s of samples) {
+    totalChars += s.charCount;
+    if (s.fontFamily) fontMap.set(s.fontFamily, (fontMap.get(s.fontFamily) || 0) + s.charCount);
+    if (s.fontSize) sizeMap.set(s.fontSize, (sizeMap.get(s.fontSize) || 0) + s.charCount);
+    if (s.bold) boldChars += s.charCount;
+    if (s.foregroundColor) {
+      const key = `${s.foregroundColor.red},${s.foregroundColor.green},${s.foregroundColor.blue}`;
+      const existing = colorMap.get(key);
+      if (existing) {
+        existing.count += s.charCount;
+      } else {
+        colorMap.set(key, { color: s.foregroundColor, count: s.charCount });
+      }
+    }
+  }
+
+  const result: Record<string, any> = {};
+
+  let maxFont = 0;
+  for (const [font, count] of fontMap) {
+    if (count > maxFont) { maxFont = count; result.fontFamily = font; }
+  }
+
+  let maxSize = 0;
+  for (const [size, count] of sizeMap) {
+    if (count > maxSize) { maxSize = count; result.fontSize = size; }
+  }
+
+  if (boldChars > totalChars * 0.5) result.bold = true;
+
+  let maxColor = 0;
+  for (const [, entry] of colorMap) {
+    if (entry.count > maxColor) { maxColor = entry.count; result.foregroundColor = entry.color; }
+  }
+
+  return Object.keys(result).length > 0 ? result : null;
+}
+
 // ── Handler class ──────────────────────────────────────────────────────────────
 
 /** Convert points to EMU (English Metric Units). 1 pt = 12700 EMU. */
@@ -393,6 +596,11 @@ export class SlidesHandler {
       // Phase 9
       case 'gslides_update_page_properties':
         return this.handleUpdatePageProperties(args);
+      // Phase 10
+      case 'gslides_batch_format_text':
+        return this.handleBatchFormatText(args);
+      case 'gslides_format_table':
+        return this.handleFormatTable(args);
       default:
         return null;
     }
@@ -560,7 +768,7 @@ export class SlidesHandler {
         return info;
       });
 
-      return successResponse({
+      const result: Record<string, any> = {
         success: true,
         presentationId: pres.presentationId,
         title: pres.title,
@@ -572,7 +780,17 @@ export class SlidesHandler {
             }
           : undefined,
         slides: slidesSummary,
-      });
+      };
+
+      // Detect dominant text style across all slides
+      if (includeText) {
+        const { dominantStyle } = extractSlidesStyles(slides);
+        if (dominantStyle) {
+          result.detectedStyle = dominantStyle;
+        }
+      }
+
+      return successResponse(result);
     } catch (error) {
       return errorResponse('getting presentation', error);
     }
@@ -904,74 +1122,23 @@ export class SlidesHandler {
   private async handleFormatText(args: any): Promise<ToolResponse> {
     try {
       const presentationId = this.requireString(args, 'presentationId');
-      const objectId = this.requireString(args, 'objectId');
-      const startIndex = this.requireNumber(args, 'startIndex');
-      const endIndex = this.requireNumber(args, 'endIndex');
-      const format = args.format;
-      if (!format || typeof format !== 'object') {
+      if (!args.format || typeof args.format !== 'object') {
         throw new Error('Invalid format: expected object');
       }
 
-      const style: slides_v1.Schema$TextStyle = {};
-      const fieldParts: string[] = [];
-
-      if (format.bold !== undefined) {
-        style.bold = format.bold;
-        fieldParts.push('bold');
-      }
-      if (format.italic !== undefined) {
-        style.italic = format.italic;
-        fieldParts.push('italic');
-      }
-      if (format.underline !== undefined) {
-        style.underline = format.underline;
-        fieldParts.push('underline');
-      }
-      if (format.fontSize !== undefined) {
-        style.fontSize = { magnitude: format.fontSize, unit: 'PT' };
-        fieldParts.push('fontSize');
-      }
-      if (format.fontFamily !== undefined) {
-        style.fontFamily = format.fontFamily;
-        fieldParts.push('fontFamily');
-      }
-      if (format.foregroundColor) {
-        style.foregroundColor = {
-          opaqueColor: { rgbColor: format.foregroundColor },
-        };
-        fieldParts.push('foregroundColor');
-      }
-
-      if (fieldParts.length === 0) {
-        throw new Error('No formatting properties provided');
-      }
-
-      const updateTextStyle: any = {
-        objectId,
-        textRange: { type: 'FIXED_RANGE', startIndex, endIndex },
-        style,
-        fields: fieldParts.join(','),
-      };
-
-      if (typeof args.rowIndex === 'number' && typeof args.columnIndex === 'number') {
-        updateTextStyle.cellLocation = {
-          rowIndex: args.rowIndex,
-          columnIndex: args.columnIndex,
-        };
-      }
+      const request = this.buildTextStyleRequest(args);
 
       await this.slides.presentations.batchUpdate({
         presentationId,
-        requestBody: {
-          requests: [{ updateTextStyle }],
-        },
+        requestBody: { requests: [request] },
       });
 
+      const textRange = (request.updateTextStyle as any).textRange;
       return successResponse({
         success: true,
-        objectId,
-        formattedRange: `${startIndex}-${endIndex}`,
-        appliedFormat: format,
+        objectId: args.objectId,
+        formattedRange: textRange.type === 'ALL' ? 'ALL' : `${args.startIndex}-${args.endIndex}`,
+        appliedFormat: args.format,
       });
     } catch (error) {
       return errorResponse('formatting text', error);
@@ -1147,6 +1314,212 @@ export class SlidesHandler {
       });
     } catch (error) {
       return errorResponse('updating page properties', error);
+    }
+  }
+
+  // ── Phase 10 handlers: Batch operations ──────────────────────────────
+
+  private buildTextStyleRequest(op: any): slides_v1.Schema$Request {
+    const format = op.format;
+    const style: slides_v1.Schema$TextStyle = {};
+    const fieldParts: string[] = [];
+
+    if (format.bold !== undefined) {
+      style.bold = format.bold;
+      fieldParts.push('bold');
+    }
+    if (format.italic !== undefined) {
+      style.italic = format.italic;
+      fieldParts.push('italic');
+    }
+    if (format.underline !== undefined) {
+      style.underline = format.underline;
+      fieldParts.push('underline');
+    }
+    if (format.fontSize !== undefined) {
+      style.fontSize = { magnitude: format.fontSize, unit: 'PT' };
+      fieldParts.push('fontSize');
+    }
+    if (format.fontFamily !== undefined) {
+      style.fontFamily = format.fontFamily;
+      fieldParts.push('fontFamily');
+    }
+    if (format.foregroundColor) {
+      style.foregroundColor = {
+        opaqueColor: { rgbColor: format.foregroundColor },
+      };
+      fieldParts.push('foregroundColor');
+    }
+
+    if (fieldParts.length === 0) {
+      throw new Error('No formatting properties provided in operation');
+    }
+
+    const textRange: any =
+      typeof op.startIndex === 'number' && typeof op.endIndex === 'number'
+        ? { type: 'FIXED_RANGE', startIndex: op.startIndex, endIndex: op.endIndex }
+        : { type: 'ALL' };
+
+    const updateTextStyle: any = {
+      objectId: op.objectId,
+      textRange,
+      style,
+      fields: fieldParts.join(','),
+    };
+
+    if (typeof op.rowIndex === 'number' && typeof op.columnIndex === 'number') {
+      updateTextStyle.cellLocation = {
+        rowIndex: op.rowIndex,
+        columnIndex: op.columnIndex,
+      };
+    }
+
+    return { updateTextStyle };
+  }
+
+  private async handleFormatTable(args: any): Promise<ToolResponse> {
+    try {
+      const presentationId = this.requireString(args, 'presentationId');
+      const objectId = this.requireString(args, 'tableObjectId');
+      const requests: slides_v1.Schema$Request[] = [];
+
+      // Column widths
+      if (Array.isArray(args.columnWidths)) {
+        for (let i = 0; i < args.columnWidths.length; i++) {
+          const widthPt = args.columnWidths[i];
+          if (typeof widthPt === 'number' && widthPt > 0) {
+            requests.push({
+              updateTableColumnProperties: {
+                objectId,
+                columnIndices: [i],
+                tableColumnProperties: {
+                  columnWidth: { magnitude: ptToEmu(widthPt), unit: 'EMU' },
+                },
+                fields: 'columnWidth',
+              },
+            });
+          }
+        }
+      }
+
+      // Row heights
+      if (Array.isArray(args.rowHeights)) {
+        for (let i = 0; i < args.rowHeights.length; i++) {
+          const heightPt = args.rowHeights[i];
+          if (typeof heightPt === 'number' && heightPt > 0) {
+            requests.push({
+              updateTableRowProperties: {
+                objectId,
+                rowIndices: [i],
+                tableRowProperties: {
+                  minRowHeight: { magnitude: ptToEmu(heightPt), unit: 'EMU' },
+                },
+                fields: 'minRowHeight',
+              },
+            });
+          }
+        }
+      }
+
+      // Content alignment (applies to all cells)
+      if (args.contentAlignment) {
+        requests.push({
+          updateTableCellProperties: {
+            objectId,
+            tableCellProperties: {
+              contentAlignment: args.contentAlignment,
+            },
+            fields: 'contentAlignment',
+          },
+        });
+      }
+
+      // Header row background color
+      if (args.headerRowBackgroundColor && args.totalColumns) {
+        requests.push({
+          updateTableCellProperties: {
+            objectId,
+            tableRange: {
+              location: { rowIndex: 0, columnIndex: 0 },
+              rowSpan: 1,
+              columnSpan: args.totalColumns,
+            },
+            tableCellProperties: {
+              tableCellBackgroundFill: {
+                solidFill: {
+                  color: { rgbColor: args.headerRowBackgroundColor },
+                },
+              },
+            },
+            fields: 'tableCellBackgroundFill.solidFill.color',
+          },
+        });
+      }
+
+      // Body rows background color
+      if (args.bodyRowBackgroundColor && args.totalRows && args.totalColumns && args.totalRows > 1) {
+        requests.push({
+          updateTableCellProperties: {
+            objectId,
+            tableRange: {
+              location: { rowIndex: 1, columnIndex: 0 },
+              rowSpan: args.totalRows - 1,
+              columnSpan: args.totalColumns,
+            },
+            tableCellProperties: {
+              tableCellBackgroundFill: {
+                solidFill: {
+                  color: { rgbColor: args.bodyRowBackgroundColor },
+                },
+              },
+            },
+            fields: 'tableCellBackgroundFill.solidFill.color',
+          },
+        });
+      }
+
+      if (requests.length === 0) {
+        return successResponse({ success: true, message: 'No properties to update' });
+      }
+
+      await this.slides.presentations.batchUpdate({
+        presentationId,
+        requestBody: { requests },
+      });
+
+      return successResponse({
+        success: true,
+        tableObjectId: objectId,
+        requestCount: requests.length,
+      });
+    } catch (error) {
+      return errorResponse('formatting table', error);
+    }
+  }
+
+  private async handleBatchFormatText(args: any): Promise<ToolResponse> {
+    try {
+      const presentationId = this.requireString(args, 'presentationId');
+      const operations = args.operations;
+      if (!Array.isArray(operations) || operations.length === 0) {
+        throw new Error('Invalid operations: expected non-empty array');
+      }
+
+      const requests: slides_v1.Schema$Request[] = operations.map((op: any) =>
+        this.buildTextStyleRequest(op),
+      );
+
+      await this.slides.presentations.batchUpdate({
+        presentationId,
+        requestBody: { requests },
+      });
+
+      return successResponse({
+        success: true,
+        operationCount: requests.length,
+      });
+    } catch (error) {
+      return errorResponse('batch formatting text', error);
     }
   }
 }

@@ -123,6 +123,124 @@ export function getDocsToolDefinitions(): ToolDefinition[] {
   ];
 }
 
+// ── Style analysis helpers ────────────────────────────────────────────────────
+
+interface StyleSample {
+  fontFamily?: string;
+  fontSize?: number;
+  bold?: boolean;
+  italic?: boolean;
+  foregroundColor?: { red: number; green: number; blue: number };
+  charCount: number;
+}
+
+function extractDocStyles(doc: docs_v1.Schema$Document): {
+  dominantStyle: Omit<StyleSample, 'charCount'> | null;
+  headingStyle: Omit<StyleSample, 'charCount'> | null;
+} {
+  const bodySamples: StyleSample[] = [];
+  const headingSamples: StyleSample[] = [];
+
+  for (const element of doc.body?.content || []) {
+    const para = element.paragraph;
+    if (!para?.elements) continue;
+
+    const isHeading = para.paragraphStyle?.namedStyleType?.startsWith('HEADING');
+
+    for (const elem of para.elements) {
+      const run = elem.textRun;
+      if (!run?.content || !run.textStyle) continue;
+
+      const text = run.content.replace(/\n/g, '');
+      if (text.length === 0) continue;
+
+      const ts = run.textStyle;
+      const sample: StyleSample = {
+        fontFamily: ts.weightedFontFamily?.fontFamily || undefined,
+        fontSize: ts.fontSize?.magnitude || undefined,
+        bold: ts.bold || undefined,
+        italic: ts.italic || undefined,
+        charCount: text.length,
+      };
+
+      const fg = ts.foregroundColor?.color?.rgbColor;
+      if (fg) {
+        sample.foregroundColor = {
+          red: Math.round((fg.red || 0) * 1000) / 1000,
+          green: Math.round((fg.green || 0) * 1000) / 1000,
+          blue: Math.round((fg.blue || 0) * 1000) / 1000,
+        };
+      }
+
+      if (isHeading) {
+        headingSamples.push(sample);
+      } else {
+        bodySamples.push(sample);
+      }
+    }
+  }
+
+  return {
+    dominantStyle: pickDominant(bodySamples),
+    headingStyle: pickDominant(headingSamples),
+  };
+}
+
+function pickDominant(samples: StyleSample[]): Omit<StyleSample, 'charCount'> | null {
+  if (samples.length === 0) return null;
+
+  // Weight by character count to find the most common style
+  const fontMap = new Map<string, number>();
+  const sizeMap = new Map<number, number>();
+  const colorMap = new Map<string, { color: { red: number; green: number; blue: number }; count: number }>();
+  let boldChars = 0;
+  let italicChars = 0;
+  let totalChars = 0;
+
+  for (const s of samples) {
+    totalChars += s.charCount;
+    if (s.fontFamily) fontMap.set(s.fontFamily, (fontMap.get(s.fontFamily) || 0) + s.charCount);
+    if (s.fontSize) sizeMap.set(s.fontSize, (sizeMap.get(s.fontSize) || 0) + s.charCount);
+    if (s.bold) boldChars += s.charCount;
+    if (s.italic) italicChars += s.charCount;
+    if (s.foregroundColor) {
+      const key = `${s.foregroundColor.red},${s.foregroundColor.green},${s.foregroundColor.blue}`;
+      const existing = colorMap.get(key);
+      if (existing) {
+        existing.count += s.charCount;
+      } else {
+        colorMap.set(key, { color: s.foregroundColor, count: s.charCount });
+      }
+    }
+  }
+
+  const result: Record<string, any> = {};
+
+  // Most common font
+  let maxFont = 0;
+  for (const [font, count] of fontMap) {
+    if (count > maxFont) { maxFont = count; result.fontFamily = font; }
+  }
+
+  // Most common size
+  let maxSize = 0;
+  for (const [size, count] of sizeMap) {
+    if (count > maxSize) { maxSize = count; result.fontSize = size; }
+  }
+
+  // Bold/italic if majority
+  if (boldChars > totalChars * 0.5) result.bold = true;
+  if (italicChars > totalChars * 0.5) result.italic = true;
+
+  // Most common color
+  let maxColor = 0;
+  for (const [, entry] of colorMap) {
+    if (entry.count > maxColor) { maxColor = entry.count; result.foregroundColor = entry.color; }
+  }
+
+  return Object.keys(result).length > 0 ? result : null;
+}
+
 // ── Handler class ──────────────────────────────────────────────────────────────
 
 export class DocsHandler {
@@ -323,7 +441,19 @@ export class DocsHandler {
         }
       }
 
-      return textResponse(`Document: ${doc.title}\n\nContent:\n${content}`);
+      const styles = extractDocStyles(doc);
+      let styleInfo = '';
+      if (styles.dominantStyle) {
+        styleInfo += `\n\nDominant body style: ${JSON.stringify(styles.dominantStyle)}`;
+      }
+      if (styles.headingStyle) {
+        styleInfo += `\nHeading style: ${JSON.stringify(styles.headingStyle)}`;
+      }
+      if (styleInfo) {
+        styleInfo = '\n\n--- Detected Styles (match these when adding content) ---' + styleInfo;
+      }
+
+      return textResponse(`Document: ${doc.title}\n\nContent:\n${content}${styleInfo}`);
     } catch (error) {
       return errorResponse('getting document', error);
     }
