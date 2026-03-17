@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import 'dotenv/config';
 import { OAuth2Client } from 'google-auth-library';
 import { createServer } from 'http';
 import { URL } from 'url';

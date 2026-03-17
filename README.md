@@ -62,7 +62,13 @@ Leave `GOOGLE_REFRESH_TOKEN` blank for now — the next step fills it in.
 
 #### 3. Authenticate with your Google account
 
+**macOS/Linux:**
 ```bash
+npm run auth
+```
+
+**Windows (PowerShell):**
+```powershell
 npm run auth
 ```
 
@@ -74,13 +80,25 @@ After you approve, it prints a **refresh token** in the terminal. Copy the token
 
 #### 4. Connect to Claude
 
-Add the MCP server to your Claude config file. The location depends on your setup:
+The easiest way is to run the setup script — it reads your `.env` file and writes the Claude Desktop config automatically:
 
-- **Claude Code (CLI):** `~/.claude/mcp.json`
-- **Claude Desktop (macOS):** `~/Library/Application Support/Claude/claude_desktop_config.json`
+```bash
+npm run setup
+```
+
+This detects your platform, finds the config file, merges with any existing MCP servers, and writes valid JSON. No manual editing needed.
+
+**If you prefer to do it manually**, add the MCP server to your Claude config file:
+
+| Platform | Config file location |
+|----------|---------------------|
+| Claude Code (CLI) | `~/.claude/mcp.json` |
+| Claude Desktop (macOS) | `~/Library/Application Support/Claude/claude_desktop_config.json` |
+| Claude Desktop (Windows) | `%APPDATA%\Claude\claude_desktop_config.json` |
 
 Add this to the file (create it if it doesn't exist), replacing the paths and credentials with your own:
 
+**macOS/Linux:**
 ```json
 {
   "mcpServers": {
@@ -96,7 +114,26 @@ Add this to the file (create it if it doesn't exist), replacing the paths and cr
 }
 ```
 
-> **Tip:** Use the full absolute path to `start-mcp.sh` (e.g. `/Users/yourname/mcp-google-workspace/start-mcp.sh`). Relative paths won't work.
+**Windows:**
+```json
+{
+  "mcpServers": {
+    "google-workspace": {
+      "command": "C:/Users/yourname/mcp-google-workspace/start-mcp.cmd",
+      "env": {
+        "GOOGLE_CLIENT_ID": "your-client-id",
+        "GOOGLE_CLIENT_SECRET": "your-client-secret",
+        "GOOGLE_REFRESH_TOKEN": "your-personal-refresh-token"
+      }
+    }
+  }
+}
+```
+
+> **Tips:**
+> - Use full absolute paths. Relative paths won't work.
+> - On Windows, use forward slashes (`C:/Users/...`) in JSON — they work fine and avoid escaping issues.
+> - The `%APPDATA%\Claude` folder may be hidden. Paste `%APPDATA%\Claude` into the File Explorer address bar to navigate there directly.
 
 #### 5. Verify it works
 
@@ -350,7 +387,9 @@ Each `tools/*.ts` exports a `get*ToolDefinitions()` function and a handler class
 | "File not found" | Verify file ID; check the file is accessible to your Google account |
 | "Rate limit exceeded" | Use batch operations; reduce request frequency |
 | OAuth redirect fails | Ensure port 3000 is free (`lsof -i :3000`) |
-| MCP tools not appearing | Check `start-mcp.sh` path in mcp.json; run `npm run build` |
+| MCP tools not appearing | Check `start-mcp.sh` (or `start-mcp.cmd` on Windows) path in config; run `npm run build` |
+| Config JSON parse error (Windows) | Run `npm run setup` to regenerate the config. If editing manually, use forward slashes in paths (`C:/Users/...`) and ensure no trailing backslashes |
+| "Bad control character" in config | The file has invisible characters (BOM or line breaks). Re-run `npm run setup` or re-save in Notepad as UTF-8 (not UTF-8 with BOM) |
 | Slides layout not found | Use `gslides_get_presentation` to check available layouts in the theme |
 
 ---
