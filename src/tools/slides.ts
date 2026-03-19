@@ -754,6 +754,28 @@ export class SlidesHandler {
               elInfo.type = 'table';
               elInfo.rows = el.table.rows;
               elInfo.columns = el.table.columns;
+              // Extract text from each cell
+              const cellData: string[][] = [];
+              if (el.table.tableRows) {
+                for (const row of el.table.tableRows) {
+                  const rowTexts: string[] = [];
+                  if (row.tableCells) {
+                    for (const cell of row.tableCells) {
+                      let cellText = '';
+                      if (cell.text?.textElements) {
+                        for (const te of cell.text.textElements) {
+                          if (te.textRun?.content) {
+                            cellText += te.textRun.content;
+                          }
+                        }
+                      }
+                      rowTexts.push(cellText.replace(/\n$/, ''));
+                    }
+                  }
+                  cellData.push(rowTexts);
+                }
+              }
+              elInfo.cellData = cellData;
             } else if (el.image) {
               elInfo.type = 'image';
               elInfo.sourceUrl = el.image.sourceUrl;
