@@ -1,8 +1,8 @@
 # Google Workspace MCP Server
 
-An MCP server that gives Claude (or any MCP-compatible AI) full read/write access to Google Sheets, Docs, Drive, and Slides. 51 tools, batch operations throughout, and a template workflow for branded presentations.
+An MCP server that gives Claude (or any MCP-compatible AI) full read/write access to Google Sheets, Docs, Drive, and Slides. 55 tools, batch operations throughout, and a template workflow for branded presentations.
 
-**Version:** 2.0.0 | **Last Updated:** 2026-03-09 | **Tools:** 51
+**Version:** 2.1.0 | **Last Updated:** 2026-03-19 | **Tools:** 55
 
 ---
 
@@ -165,14 +165,14 @@ Restart Claude, then try asking: "Search my Google Drive for recent documents." 
 | Tool | Description |
 |------|-------------|
 | `gdocs_create_document` | Create a new document (optionally in a folder with initial content) |
-| `gdocs_get_document` | Read document content as plain text |
+| `gdocs_get_document` | Read document content with tracked changes (suggestions) detected |
 | `gdocs_insert_text` | Insert text at a specific index |
 | `gdocs_append_text` | Append text to the end |
 | `gdocs_replace_text` | Find and replace throughout the document |
 | `gdocs_format_text` | Apply bold, italic, underline, font size |
 | `gdocs_set_heading` | Convert text to heading (H1–H6) |
 
-### Google Drive — 14 tools
+### Google Drive — 18 tools
 
 | Tool | Description |
 |------|-------------|
@@ -190,6 +190,10 @@ Restart Claude, then try asking: "Search my Google Drive for recent documents." 
 | `gdrive_export_file` | Export to PDF, DOCX, XLSX, PPTX |
 | `gdrive_batch_export` | Bulk export multiple files |
 | `gdrive_list_permissions` | See who has access to a file/folder |
+| `gdrive_list_comments` | List all comments with replies and resolved status |
+| `gdrive_create_comment` | Add a comment to any file (Docs, Sheets, Slides) |
+| `gdrive_reply_to_comment` | Reply to a comment, or resolve/reopen it |
+| `gdrive_delete_comment` | Delete a comment (author only) |
 
 ### Google Slides — 17 tools
 
@@ -365,11 +369,13 @@ mcp-google-workspace/
 │   └── tools/
 │       ├── sheets.ts     # 12 tools
 │       ├── docs.ts       # 7 tools
-│       ├── drive.ts      # 14 tools
+│       ├── drive.ts      # 18 tools
 │       ├── slides.ts     # 17 tools
 │       └── auth.ts       # 2 tools
 ├── dist/                 # Compiled JS
-├── start-mcp.sh          # Launch script for MCP config
+├── start-mcp.sh          # Launch script (macOS/Linux)
+├── start-mcp.cmd         # Launch script (Windows)
+├── install-windows.bat   # One-click Windows installer
 ├── .env                  # Credentials (not committed)
 ├── package.json
 └── tsconfig.json
@@ -400,12 +406,20 @@ Each `tools/*.ts` exports a `get*ToolDefinitions()` function and a handler class
 npm run build     # Compile TypeScript
 npm run dev       # Watch mode
 npm run auth      # OAuth flow
+npm run setup     # Write Claude Desktop config from .env
 npm start         # Start server directly
 ```
 
 ---
 
 ## Version History
+
+### v2.1.0 — 2026-03-19
+- Added comment tools: list, create, reply/resolve, delete (works on Docs, Sheets, Slides)
+- `gdocs_get_document` now detects and surfaces suggested changes (tracked changes/redlines)
+- Added `dotenv` — `.env` files load natively on all platforms
+- Added Windows support: `install-windows.bat` (one-click installer), `start-mcp.cmd`, `npm run setup`
+- 55 total tools (was 51)
 
 ### v2.0.0 — 2026-03-09
 - Added Google Slides support (17 tools)

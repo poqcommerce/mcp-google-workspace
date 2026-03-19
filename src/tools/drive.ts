@@ -11,6 +11,10 @@ import type {
   BatchExportRequest,
   ListFolderTreeRequest,
   ListPermissionsRequest,
+  ListCommentsRequest,
+  CreateCommentRequest,
+  ReplyToCommentRequest,
+  DeleteCommentRequest,
   ToolDefinition,
   ToolResponse,
 } from '../types.js';
@@ -213,6 +217,63 @@ export function getDriveToolDefinitions(): ToolDefinition[] {
         required: ['fileId'],
       },
     },
+    {
+      name: 'gdrive_list_comments',
+      description: 'List all comments on a Google Drive file (Docs, Sheets, or Slides)',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          fileId: { type: 'string', description: 'ID of the file' },
+          includeDeleted: { type: 'boolean', description: 'Include deleted comments (default: false)' },
+          includeResolved: { type: 'boolean', description: 'Include resolved comments (default: true)' },
+          pageSize: { type: 'number', description: 'Number of comments per page (max 100, default: 100)' },
+          pageToken: { type: 'string', description: 'Token for the next page of results' },
+        },
+        required: ['fileId'],
+      },
+    },
+    {
+      name: 'gdrive_create_comment',
+      description: 'Add a comment to a Google Drive file (Docs, Sheets, or Slides)',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          fileId: { type: 'string', description: 'ID of the file to comment on' },
+          content: { type: 'string', description: 'Comment text' },
+        },
+        required: ['fileId', 'content'],
+      },
+    },
+    {
+      name: 'gdrive_reply_to_comment',
+      description: 'Reply to a comment, or resolve/reopen it',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          fileId: { type: 'string', description: 'ID of the file' },
+          commentId: { type: 'string', description: 'ID of the comment to reply to' },
+          content: { type: 'string', description: 'Reply text' },
+          action: {
+            type: 'string',
+            description: 'Optional action: "resolve" to resolve the comment, "reopen" to reopen it',
+            enum: ['resolve', 'reopen'],
+          },
+        },
+        required: ['fileId', 'commentId', 'content'],
+      },
+    },
+    {
+      name: 'gdrive_delete_comment',
+      description: 'Delete a comment (only works if you are the comment author)',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          fileId: { type: 'string', description: 'ID of the file' },
+          commentId: { type: 'string', description: 'ID of the comment to delete' },
+        },
+        required: ['fileId', 'commentId'],
+      },
+    },
   ];
 }
 
@@ -252,6 +313,14 @@ export class DriveHandler {
         return this.handleListFolderTree(this.validateListFolderTreeArgs(args));
       case 'gdrive_list_permissions':
         return this.handleListPermissions(this.validateListPermissionsArgs(args));
+      case 'gdrive_list_comments':
+        return this.handleListComments(this.validateListCommentsArgs(args));
+      case 'gdrive_create_comment':
+        return this.handleCreateComment(this.validateCreateCommentArgs(args));
+      case 'gdrive_reply_to_comment':
+        return this.handleReplyToComment(this.validateReplyToCommentArgs(args));
+      case 'gdrive_delete_comment':
+        return this.handleDeleteComment(this.validateDeleteCommentArgs(args));
       default:
         return null;
     }
@@ -366,6 +435,41 @@ export class DriveHandler {
     if (!args || typeof args !== 'object') throw new Error('Invalid arguments: expected object');
     if (!args.fileId || typeof args.fileId !== 'string') throw new Error('Invalid fileId: expected non-empty string');
     return { fileId: args.fileId };
+  }
+
+  private validateListCommentsArgs(args: any): ListCommentsRequest {
+    if (!args || typeof args !== 'object') throw new Error('Invalid arguments: expected object');
+    if (!args.fileId || typeof args.fileId !== 'string') throw new Error('Invalid fileId: expected non-empty string');
+    return {
+      fileId: args.fileId,
+      includeDeleted: args.includeDeleted === true,
+      includeResolved: args.includeResolved !== false,
+      pageSize: args.pageSize || 100,
+      pageToken: args.pageToken,
+    };
+  }
+
+  private validateCreateCommentArgs(args: any): CreateCommentRequest {
+    if (!args || typeof args !== 'object') throw new Error('Invalid arguments: expected object');
+    if (!args.fileId || typeof args.fileId !== 'string') throw new Error('Invalid fileId: expected non-empty string');
+    if (!args.content || typeof args.content !== 'string') throw new Error('Invalid content: expected non-empty string');
+    return { fileId: args.fileId, content: args.content };
+  }
+
+  private validateReplyToCommentArgs(args: any): ReplyToCommentRequest {
+    if (!args || typeof args !== 'object') throw new Error('Invalid arguments: expected object');
+    if (!args.fileId || typeof args.fileId !== 'string') throw new Error('Invalid fileId: expected non-empty string');
+    if (!args.commentId || typeof args.commentId !== 'string') throw new Error('Invalid commentId: expected non-empty string');
+    if (!args.content || typeof args.content !== 'string') throw new Error('Invalid content: expected non-empty string');
+    if (args.action && !['resolve', 'reopen'].includes(args.action)) throw new Error('Invalid action: expected "resolve" or "reopen"');
+    return { fileId: args.fileId, commentId: args.commentId, content: args.content, action: args.action };
+  }
+
+  private validateDeleteCommentArgs(args: any): DeleteCommentRequest {
+    if (!args || typeof args !== 'object') throw new Error('Invalid arguments: expected object');
+    if (!args.fileId || typeof args.fileId !== 'string') throw new Error('Invalid fileId: expected non-empty string');
+    if (!args.commentId || typeof args.commentId !== 'string') throw new Error('Invalid commentId: expected non-empty string');
+    return { fileId: args.fileId, commentId: args.commentId };
   }
 
   // ── Handlers ───────────────────────────────────────────────────────────────
@@ -838,6 +942,126 @@ export class DriveHandler {
       });
     } catch (error) {
       return errorResponse('listing permissions', error);
+    }
+  }
+
+  private async handleListComments(args: ListCommentsRequest): Promise<ToolResponse> {
+    try {
+      const response = await this.drive.comments.list({
+        fileId: args.fileId,
+        includeDeleted: args.includeDeleted,
+        pageSize: args.pageSize,
+        pageToken: args.pageToken,
+        fields: 'nextPageToken, comments(id, content, author, createdTime, modifiedTime, resolved, deleted, quotedFileContent, replies(id, content, author, createdTime, action))',
+      });
+
+      const comments = response.data.comments || [];
+
+      // Filter out resolved if not requested
+      const filtered = args.includeResolved
+        ? comments
+        : comments.filter((c) => !c.resolved);
+
+      const result = filtered.map((c) => ({
+        id: c.id,
+        content: c.content,
+        author: c.author?.displayName || c.author?.emailAddress,
+        createdTime: c.createdTime,
+        modifiedTime: c.modifiedTime,
+        resolved: c.resolved,
+        deleted: c.deleted,
+        quotedContent: c.quotedFileContent?.value,
+        replies: c.replies?.map((r) => ({
+          id: r.id,
+          content: r.content,
+          author: r.author?.displayName || r.author?.emailAddress,
+          createdTime: r.createdTime,
+          action: r.action,
+        })),
+      }));
+
+      let output: Record<string, unknown> = {
+        success: true,
+        fileId: args.fileId,
+        commentCount: result.length,
+        comments: result,
+      };
+      if (response.data.nextPageToken) {
+        output.nextPageToken = response.data.nextPageToken;
+      }
+      return successResponse(output);
+    } catch (error) {
+      return errorResponse('listing comments', error);
+    }
+  }
+
+  private async handleCreateComment(args: CreateCommentRequest): Promise<ToolResponse> {
+    try {
+      const response = await this.drive.comments.create({
+        fileId: args.fileId,
+        fields: 'id, content, author, createdTime',
+        requestBody: {
+          content: args.content,
+        },
+      });
+
+      return successResponse({
+        success: true,
+        fileId: args.fileId,
+        commentId: response.data.id,
+        content: response.data.content,
+        author: response.data.author?.displayName || response.data.author?.emailAddress,
+        createdTime: response.data.createdTime,
+      });
+    } catch (error) {
+      return errorResponse('creating comment', error);
+    }
+  }
+
+  private async handleReplyToComment(args: ReplyToCommentRequest): Promise<ToolResponse> {
+    try {
+      const requestBody: any = { content: args.content };
+      if (args.action) {
+        requestBody.action = args.action;
+      }
+
+      const response = await this.drive.replies.create({
+        fileId: args.fileId,
+        commentId: args.commentId,
+        fields: 'id, content, author, createdTime, action',
+        requestBody,
+      });
+
+      return successResponse({
+        success: true,
+        fileId: args.fileId,
+        commentId: args.commentId,
+        replyId: response.data.id,
+        content: response.data.content,
+        author: response.data.author?.displayName || response.data.author?.emailAddress,
+        action: response.data.action,
+        createdTime: response.data.createdTime,
+      });
+    } catch (error) {
+      return errorResponse('replying to comment', error);
+    }
+  }
+
+  private async handleDeleteComment(args: DeleteCommentRequest): Promise<ToolResponse> {
+    try {
+      await this.drive.comments.delete({
+        fileId: args.fileId,
+        commentId: args.commentId,
+      });
+
+      return successResponse({
+        success: true,
+        fileId: args.fileId,
+        commentId: args.commentId,
+        message: 'Comment deleted',
+      });
+    } catch (error) {
+      return errorResponse('deleting comment', error);
     }
   }
 }

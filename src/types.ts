@@ -119,6 +119,31 @@ export interface ListPermissionsRequest {
   fileId: string;
 }
 
+export interface ListCommentsRequest {
+  fileId: string;
+  includeDeleted?: boolean;
+  includeResolved?: boolean;
+  pageSize?: number;
+  pageToken?: string;
+}
+
+export interface CreateCommentRequest {
+  fileId: string;
+  content: string;
+}
+
+export interface ReplyToCommentRequest {
+  fileId: string;
+  commentId: string;
+  content: string;
+  action?: 'resolve' | 'reopen';
+}
+
+export interface DeleteCommentRequest {
+  fileId: string;
+  commentId: string;
+}
+
 // ── Shared ─────────────────────────────────────────────────────────────────────
 
 export interface ToolResponse {
