@@ -141,44 +141,56 @@ function extractDocStyles(doc: docs_v1.Schema$Document): {
   const bodySamples: StyleSample[] = [];
   const headingSamples: StyleSample[] = [];
 
-  for (const element of doc.body?.content || []) {
-    const para = element.paragraph;
-    if (!para?.elements) continue;
+  const collectFromElements = (elements: docs_v1.Schema$StructuralElement[]) => {
+    for (const element of elements) {
+      if (element.paragraph) {
+        const para = element.paragraph;
+        if (!para.elements) continue;
 
-    const isHeading = para.paragraphStyle?.namedStyleType?.startsWith('HEADING');
+        const isHeading = para.paragraphStyle?.namedStyleType?.startsWith('HEADING');
 
-    for (const elem of para.elements) {
-      const run = elem.textRun;
-      if (!run?.content || !run.textStyle) continue;
+        for (const elem of para.elements) {
+          const run = elem.textRun;
+          if (!run?.content || !run.textStyle) continue;
 
-      const text = run.content.replace(/\n/g, '');
-      if (text.length === 0) continue;
+          const text = run.content.replace(/\n/g, '');
+          if (text.length === 0) continue;
 
-      const ts = run.textStyle;
-      const sample: StyleSample = {
-        fontFamily: ts.weightedFontFamily?.fontFamily || undefined,
-        fontSize: ts.fontSize?.magnitude || undefined,
-        bold: ts.bold || undefined,
-        italic: ts.italic || undefined,
-        charCount: text.length,
-      };
+          const ts = run.textStyle;
+          const sample: StyleSample = {
+            fontFamily: ts.weightedFontFamily?.fontFamily || undefined,
+            fontSize: ts.fontSize?.magnitude || undefined,
+            bold: ts.bold || undefined,
+            italic: ts.italic || undefined,
+            charCount: text.length,
+          };
 
-      const fg = ts.foregroundColor?.color?.rgbColor;
-      if (fg) {
-        sample.foregroundColor = {
-          red: Math.round((fg.red || 0) * 1000) / 1000,
-          green: Math.round((fg.green || 0) * 1000) / 1000,
-          blue: Math.round((fg.blue || 0) * 1000) / 1000,
-        };
-      }
+          const fg = ts.foregroundColor?.color?.rgbColor;
+          if (fg) {
+            sample.foregroundColor = {
+              red: Math.round((fg.red || 0) * 1000) / 1000,
+              green: Math.round((fg.green || 0) * 1000) / 1000,
+              blue: Math.round((fg.blue || 0) * 1000) / 1000,
+            };
+          }
 
-      if (isHeading) {
-        headingSamples.push(sample);
-      } else {
-        bodySamples.push(sample);
+          if (isHeading) {
+            headingSamples.push(sample);
+          } else {
+            bodySamples.push(sample);
+          }
+        }
+      } else if (element.table) {
+        for (const row of element.table.tableRows || []) {
+          for (const cell of row.tableCells || []) {
+            if (cell.content) collectFromElements(cell.content);
+          }
+        }
       }
     }
-  }
+  };
+
+  collectFromElements(doc.body?.content || []);
 
   return {
     dominantStyle: pickDominant(bodySamples),
@@ -447,42 +459,88 @@ export class DocsHandler {
         }
       }
 
-      if (doc.body?.content) {
-        for (const element of doc.body.content) {
-          if (element.paragraph?.elements) {
-            for (const elem of element.paragraph.elements) {
-              const run = elem.textRun;
-              if (!run?.content) continue;
+      /** Extract text and suggestions from paragraph elements */
+      const processParagraph = (elements: docs_v1.Schema$ParagraphElement[]): string => {
+        let text = '';
+        for (const elem of elements) {
+          const run = elem.textRun;
+          if (!run?.content) continue;
 
-              const text = run.content;
-              const insertionIds = run.suggestedInsertionIds || [];
-              const deletionIds = run.suggestedDeletionIds || [];
+          const runText = run.content;
+          const insertionIds = run.suggestedInsertionIds || [];
+          const deletionIds = run.suggestedDeletionIds || [];
 
-              if (insertionIds.length > 0) {
-                for (const id of insertionIds) {
-                  suggestions.push({ id, type: 'insertion', text: text.replace(/\n$/, '') });
-                }
-              } else if (deletionIds.length > 0) {
-                for (const id of deletionIds) {
-                  suggestions.push({ id, type: 'deletion', text: text.replace(/\n$/, '') });
-                }
-              }
-
-              // Check for suggested text style changes (formatting suggestions)
-              if (run.suggestedTextStyleChanges) {
-                for (const [id, change] of Object.entries(run.suggestedTextStyleChanges)) {
-                  const existing = suggestions.find((s) => s.id === id && s.type === 'format');
-                  if (!existing) {
-                    suggestions.push({ id, type: 'format', text: text.replace(/\n$/, '') });
-                  }
-                }
-              }
-
-              // Include all text in content (original + suggested)
-              content += text;
+          if (insertionIds.length > 0) {
+            for (const id of insertionIds) {
+              suggestions.push({ id, type: 'insertion', text: runText.replace(/\n$/, '') });
+            }
+          } else if (deletionIds.length > 0) {
+            for (const id of deletionIds) {
+              suggestions.push({ id, type: 'deletion', text: runText.replace(/\n$/, '') });
             }
           }
+
+          if (run.suggestedTextStyleChanges) {
+            for (const [id, change] of Object.entries(run.suggestedTextStyleChanges)) {
+              const existing = suggestions.find((s) => s.id === id && s.type === 'format');
+              if (!existing) {
+                suggestions.push({ id, type: 'format', text: runText.replace(/\n$/, '') });
+              }
+            }
+          }
+
+          text += runText;
         }
+        return text;
+      };
+
+      /** Render a table as pipe-delimited rows */
+      const processTable = (table: docs_v1.Schema$Table): string => {
+        const rows: string[][] = [];
+        for (const row of table.tableRows || []) {
+          const cells: string[] = [];
+          for (const cell of row.tableCells || []) {
+            let cellText = '';
+            for (const cellElement of cell.content || []) {
+              if (cellElement.paragraph?.elements) {
+                cellText += processParagraph(cellElement.paragraph.elements);
+              } else if (cellElement.table) {
+                cellText += processTable(cellElement.table);
+              }
+            }
+            // Trim trailing newlines from cell content and collapse internal newlines
+            cells.push(cellText.replace(/\n+$/, '').replace(/\n/g, ' '));
+          }
+          rows.push(cells);
+        }
+
+        if (rows.length === 0) return '';
+
+        let result = '';
+        for (let i = 0; i < rows.length; i++) {
+          result += '| ' + rows[i].join(' | ') + ' |\n';
+          if (i === 0) {
+            result += '| ' + rows[i].map(() => '---').join(' | ') + ' |\n';
+          }
+        }
+        return result;
+      };
+
+      /** Process structural elements (paragraphs, tables, etc.) */
+      const processStructuralElements = (elements: docs_v1.Schema$StructuralElement[]): string => {
+        let text = '';
+        for (const element of elements) {
+          if (element.paragraph?.elements) {
+            text += processParagraph(element.paragraph.elements);
+          } else if (element.table) {
+            text += processTable(element.table);
+          }
+        }
+        return text;
+      };
+
+      if (doc.body?.content) {
+        content = processStructuralElements(doc.body.content);
       }
 
       const styles = extractDocStyles(doc);

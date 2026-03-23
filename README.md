@@ -2,7 +2,7 @@
 
 An MCP server that gives Claude (or any MCP-compatible AI) full read/write access to Google Sheets, Docs, Drive, and Slides. 55 tools, batch operations throughout, and a template workflow for branded presentations.
 
-**Version:** 2.1.0 | **Last Updated:** 2026-03-19 | **Tools:** 55
+**Version:** 2.2.0 | **Last Updated:** 2026-03-23 | **Tools:** 55
 
 ---
 
@@ -165,7 +165,7 @@ Restart Claude, then try asking: "Search my Google Drive for recent documents." 
 | Tool | Description |
 |------|-------------|
 | `gdocs_create_document` | Create a new document (optionally in a folder with initial content) |
-| `gdocs_get_document` | Read document content with tracked changes (suggestions) detected |
+| `gdocs_get_document` | Read document content including tables (rendered as markdown) with tracked changes detected |
 | `gdocs_insert_text` | Insert text at a specific index |
 | `gdocs_append_text` | Append text to the end |
 | `gdocs_replace_text` | Find and replace throughout the document |
@@ -413,6 +413,12 @@ npm start         # Start server directly
 ---
 
 ## Version History
+
+### v2.2.0 — 2026-03-23
+- `gdocs_get_document` now renders tables as pipe-delimited markdown — previously table content was silently dropped
+- Suggestion/redline detection now works inside table cells (insertions, deletions, format changes)
+- Style detection includes text inside tables
+- Added test suite (vitest) with table rendering tests
 
 ### v2.1.0 — 2026-03-19
 - Added comment tools: list, create, reply/resolve, delete (works on Docs, Sheets, Slides)
