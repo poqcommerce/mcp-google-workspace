@@ -1,4 +1,6 @@
 import { drive_v3, driveactivity_v2 } from 'googleapis';
+import { writeFile, mkdir } from 'fs/promises';
+import { dirname } from 'path';
 import type {
   MoveFileRequest,
   BatchMoveRequest,
@@ -276,6 +278,26 @@ export function getDriveToolDefinitions(): ToolDefinition[] {
       },
     },
     {
+      name: 'gdrive_download_file',
+      description:
+        'Download a file from Google Drive to the local filesystem. ' +
+        'For Google Workspace files (Docs, Sheets, Slides), specify a format to export as (e.g. xlsx, pdf, docx, pptx). ' +
+        'For non-Google files (PDFs, images, etc.), downloads the file directly.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          fileId: { type: 'string', description: 'ID of the file to download' },
+          outputPath: { type: 'string', description: 'Local file path to save to (e.g. /Users/jay/downloads/report.xlsx)' },
+          format: {
+            type: 'string',
+            description: 'Export format for Google Workspace files: xlsx, csv, pdf, docx, pptx, txt, html. Not needed for non-Google files.',
+            enum: ['xlsx', 'csv', 'pdf', 'docx', 'pptx', 'txt', 'html'],
+          },
+        },
+        required: ['fileId', 'outputPath'],
+      },
+    },
+    {
       name: 'gdrive_suggestion_activity',
       description:
         'Get suggestion activity for a Google Doc — who made suggestions and when. ' +
@@ -340,6 +362,8 @@ export class DriveHandler {
         return this.handleReplyToComment(this.validateReplyToCommentArgs(args));
       case 'gdrive_delete_comment':
         return this.handleDeleteComment(this.validateDeleteCommentArgs(args));
+      case 'gdrive_download_file':
+        return this.handleDownloadFile(args);
       case 'gdrive_suggestion_activity':
         return this.handleSuggestionActivity(this.validateSuggestionActivityArgs(args));
       default:
@@ -1089,6 +1113,67 @@ export class DriveHandler {
       });
     } catch (error) {
       return errorResponse('deleting comment', error);
+    }
+  }
+
+  private async handleDownloadFile(args: any): Promise<ToolResponse> {
+    try {
+      if (!args?.fileId || typeof args.fileId !== 'string') throw new Error('fileId is required');
+      if (!args?.outputPath || typeof args.outputPath !== 'string') throw new Error('outputPath is required');
+
+      const formatMimeMap: Record<string, string> = {
+        xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        csv: 'text/csv',
+        pdf: 'application/pdf',
+        docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+        txt: 'text/plain',
+        html: 'text/html',
+      };
+
+      // Check if this is a Google Workspace file (needs export) or a regular file (direct download)
+      const fileInfo = await this.drive.files.get({ fileId: args.fileId, fields: 'mimeType,name' });
+      const isGoogleFile = fileInfo.data.mimeType?.startsWith('application/vnd.google-apps.');
+
+      let buffer: Buffer;
+
+      if (isGoogleFile) {
+        const mimeType = args.format ? formatMimeMap[args.format] : null;
+        if (!mimeType) {
+          throw new Error(
+            `Export format required for Google Workspace files. Use one of: ${Object.keys(formatMimeMap).join(', ')}`,
+          );
+        }
+
+        const response = await this.drive.files.export(
+          { fileId: args.fileId, mimeType },
+          { responseType: 'arraybuffer' },
+        );
+        buffer = Buffer.from(response.data as ArrayBuffer);
+      } else {
+        const response = await this.drive.files.get(
+          { fileId: args.fileId, alt: 'media' },
+          { responseType: 'arraybuffer' },
+        );
+        buffer = Buffer.from(response.data as ArrayBuffer);
+      }
+
+      // Ensure output directory exists
+      await mkdir(dirname(args.outputPath), { recursive: true });
+      await writeFile(args.outputPath, buffer);
+
+      return successResponse({
+        success: true,
+        fileId: args.fileId,
+        fileName: fileInfo.data.name,
+        outputPath: args.outputPath,
+        sizeInBytes: buffer.length,
+        sizeFormatted: buffer.length > 1024 * 1024
+          ? `${(buffer.length / (1024 * 1024)).toFixed(2)} MB`
+          : `${(buffer.length / 1024).toFixed(2)} KB`,
+      });
+    } catch (error) {
+      return errorResponse('downloading file', error);
     }
   }
 

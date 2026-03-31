@@ -351,14 +351,19 @@ export function getSlidesToolDefinitions(): ToolDefinition[] {
     },
     {
       name: 'gslides_delete_slide',
-      description: 'Delete a slide from a presentation',
+      description: 'Delete one or more slides from a presentation. Pass slideObjectId for a single slide, or slideObjectIds for batch deletion in one API call.',
       inputSchema: {
         type: 'object',
         properties: {
           presentationId: { type: 'string', description: 'The ID of the presentation' },
-          slideObjectId: { type: 'string', description: 'Object ID of the slide to delete' },
+          slideObjectId: { type: 'string', description: 'Object ID of a single slide to delete' },
+          slideObjectIds: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Array of slide object IDs to delete in a single batch call',
+          },
         },
-        required: ['presentationId', 'slideObjectId'],
+        required: ['presentationId'],
       },
     },
 
@@ -1196,21 +1201,32 @@ export class SlidesHandler {
   private async handleDeleteSlide(args: any): Promise<ToolResponse> {
     try {
       const presentationId = this.requireString(args, 'presentationId');
-      const slideObjectId = this.requireString(args, 'slideObjectId');
+
+      // Support both single ID and array of IDs
+      const ids: string[] = args.slideObjectIds && Array.isArray(args.slideObjectIds)
+        ? args.slideObjectIds
+        : args.slideObjectId
+          ? [args.slideObjectId]
+          : [];
+
+      if (ids.length === 0) {
+        throw new Error('Provide either slideObjectId (string) or slideObjectIds (array)');
+      }
 
       await this.slides.presentations.batchUpdate({
         presentationId,
         requestBody: {
-          requests: [{ deleteObject: { objectId: slideObjectId } }],
+          requests: ids.map((id) => ({ deleteObject: { objectId: id } })),
         },
       });
 
       return successResponse({
         success: true,
-        deletedSlideId: slideObjectId,
+        deletedCount: ids.length,
+        deletedSlideIds: ids,
       });
     } catch (error) {
-      return errorResponse('deleting slide', error);
+      return errorResponse('deleting slide(s)', error);
     }
   }
 

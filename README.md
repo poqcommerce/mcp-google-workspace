@@ -1,8 +1,8 @@
 # Google Workspace MCP Server
 
-An MCP server that gives Claude (or any MCP-compatible AI) full read/write access to Google Sheets, Docs, Drive, and Slides. 56 tools, batch operations throughout, and a template workflow for branded presentations.
+An MCP server that gives Claude (or any MCP-compatible AI) full read/write access to Google Sheets, Docs, Drive, and Slides. 58 tools, batch operations throughout, and a template workflow for branded presentations.
 
-**Version:** 2.3.0 | **Last Updated:** 2026-03-30 | **Tools:** 56
+**Version:** 2.4.0 | **Last Updated:** 2026-03-31 | **Tools:** 58
 
 ---
 
@@ -173,7 +173,7 @@ Restart Claude, then try asking: "Search my Google Drive for recent documents." 
 | `gdocs_format_text` | Apply bold, italic, underline, font size |
 | `gdocs_set_heading` | Convert text to heading (H1–H6) |
 
-### Google Drive — 19 tools
+### Google Drive — 20 tools
 
 | Tool | Description |
 |------|-------------|
@@ -195,6 +195,7 @@ Restart Claude, then try asking: "Search my Google Drive for recent documents." 
 | `gdrive_create_comment` | Add a comment to any file (Docs, Sheets, Slides) |
 | `gdrive_reply_to_comment` | Reply to a comment, or resolve/reopen it |
 | `gdrive_delete_comment` | Delete a comment (author only) |
+| `gdrive_download_file` | Download a file from Drive to local disk (auto-exports Google Workspace files) |
 | `gdrive_suggestion_activity` | Get who made suggestions and when (for redline attribution) |
 
 ### Google Slides — 17 tools
@@ -204,7 +205,7 @@ Restart Claude, then try asking: "Search my Google Drive for recent documents." 
 | `gslides_create_presentation` | Create a new presentation |
 | `gslides_get_presentation` | Get full structure: slides, elements, text, notes |
 | `gslides_add_slide` | Add a slide with a predefined layout |
-| `gslides_delete_slide` | Remove a slide |
+| `gslides_delete_slide` | Remove one or more slides (supports batch deletion) |
 | `gslides_insert_text` | Insert text into a shape or placeholder |
 | `gslides_replace_text` | Find and replace across slides |
 | `gslides_speaker_notes` | Read or write speaker notes |
@@ -371,7 +372,7 @@ mcp-google-workspace/
 │   └── tools/
 │       ├── sheets.ts     # 12 tools
 │       ├── docs.ts       # 7 tools
-│       ├── drive.ts      # 19 tools
+│       ├── drive.ts      # 20 tools
 │       ├── slides.ts     # 17 tools
 │       └── auth.ts       # 2 tools
 ├── dist/                 # Compiled JS
@@ -415,6 +416,11 @@ npm start         # Start server directly
 ---
 
 ## Version History
+
+### v2.4.0 — 2026-03-31
+- `gdrive_download_file` — new tool to download any Drive file to local disk. Auto-detects Google Workspace files and exports them (xlsx, pdf, docx, pptx, csv, etc.). Non-Google files (PDFs, images) download directly
+- `gslides_delete_slide` now supports batch deletion — pass `slideObjectIds` array to delete multiple slides in a single API call
+- 58 total tools (was 56)
 
 ### v2.3.0 — 2026-03-30
 - `gdrive_suggestion_activity` — new tool to surface who made suggestions and when, using the Drive Activity API. Useful for attributing redline changes in contract negotiations. Note: only captures suggestions made natively in Google Docs, not tracked changes imported from Word
