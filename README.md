@@ -1,8 +1,8 @@
 # Google Workspace MCP Server
 
-An MCP server that gives Claude (or any MCP-compatible AI) full read/write access to Google Sheets, Docs, Drive, and Slides. 55 tools, batch operations throughout, and a template workflow for branded presentations.
+An MCP server that gives Claude (or any MCP-compatible AI) full read/write access to Google Sheets, Docs, Drive, and Slides. 56 tools, batch operations throughout, and a template workflow for branded presentations.
 
-**Version:** 2.2.0 | **Last Updated:** 2026-03-23 | **Tools:** 55
+**Version:** 2.3.0 | **Last Updated:** 2026-03-30 | **Tools:** 56
 
 ---
 
@@ -19,11 +19,12 @@ This creates the "app" that lets Claude talk to Google Workspace. It only needs 
 1. Go to [console.cloud.google.com](https://console.cloud.google.com/) and sign in with your work Google account
 2. Click the project dropdown (top-left) and select **New Project**. Name it something like "Claude MCP" and click **Create**
 3. Make sure the new project is selected, then go to **APIs & Services > Library** (left sidebar)
-4. Search for and **enable** each of these four APIs (click each one, then click "Enable"):
+4. Search for and **enable** each of these five APIs (click each one, then click "Enable"):
    - **Google Drive API**
    - **Google Docs API**
    - **Google Sheets API**
    - **Google Slides API**
+   - **Drive Activity API** (required for suggestion attribution — who made which tracked change)
 5. Go to **APIs & Services > Credentials** (left sidebar)
 6. Click **+ Create Credentials > OAuth client ID**
    - If prompted to configure the OAuth consent screen first, choose **Internal** (restricts to your org's Google accounts) or **External** (for testing with personal accounts), fill in the required fields (app name, support email), and save
@@ -165,14 +166,14 @@ Restart Claude, then try asking: "Search my Google Drive for recent documents." 
 | Tool | Description |
 |------|-------------|
 | `gdocs_create_document` | Create a new document (optionally in a folder with initial content) |
-| `gdocs_get_document` | Read document content including tables (rendered as markdown) with tracked changes detected |
+| `gdocs_get_document` | Read document content including tables (rendered as markdown) with tracked changes detected and section context |
 | `gdocs_insert_text` | Insert text at a specific index |
 | `gdocs_append_text` | Append text to the end |
 | `gdocs_replace_text` | Find and replace throughout the document |
 | `gdocs_format_text` | Apply bold, italic, underline, font size |
 | `gdocs_set_heading` | Convert text to heading (H1–H6) |
 
-### Google Drive — 18 tools
+### Google Drive — 19 tools
 
 | Tool | Description |
 |------|-------------|
@@ -190,10 +191,11 @@ Restart Claude, then try asking: "Search my Google Drive for recent documents." 
 | `gdrive_export_file` | Export to PDF, DOCX, XLSX, PPTX |
 | `gdrive_batch_export` | Bulk export multiple files |
 | `gdrive_list_permissions` | See who has access to a file/folder |
-| `gdrive_list_comments` | List all comments with replies and resolved status |
+| `gdrive_list_comments` | List all comments with replies, resolved status, and anchored text |
 | `gdrive_create_comment` | Add a comment to any file (Docs, Sheets, Slides) |
 | `gdrive_reply_to_comment` | Reply to a comment, or resolve/reopen it |
 | `gdrive_delete_comment` | Delete a comment (author only) |
+| `gdrive_suggestion_activity` | Get who made suggestions and when (for redline attribution) |
 
 ### Google Slides — 17 tools
 
@@ -269,7 +271,7 @@ Key tips:
 
 ### Re-authenticate after scope changes
 
-If you add a new Google API (e.g. enabling Slides for the first time), run `npm run auth` again to grant the new scope. The OAuth scopes are: `spreadsheets`, `drive`, `documents`, `presentations`.
+If you add a new Google API (e.g. enabling Slides for the first time), run `npm run auth` again to grant the new scope. The OAuth scopes are: `spreadsheets`, `drive`, `documents`, `presentations`, `drive.activity.readonly`.
 
 ### Style consistency
 
@@ -369,7 +371,7 @@ mcp-google-workspace/
 │   └── tools/
 │       ├── sheets.ts     # 12 tools
 │       ├── docs.ts       # 7 tools
-│       ├── drive.ts      # 18 tools
+│       ├── drive.ts      # 19 tools
 │       ├── slides.ts     # 17 tools
 │       └── auth.ts       # 2 tools
 ├── dist/                 # Compiled JS
@@ -413,6 +415,14 @@ npm start         # Start server directly
 ---
 
 ## Version History
+
+### v2.3.0 — 2026-03-30
+- `gdrive_suggestion_activity` — new tool to surface who made suggestions and when, using the Drive Activity API. Useful for attributing redline changes in contract negotiations. Note: only captures suggestions made natively in Google Docs, not tracked changes imported from Word
+- `gdocs_get_document` now includes section heading context on each suggestion (e.g. `[Service Credits] DELETE: "sole and exclusive"`)
+- Removed dead author-extraction code from suggestion parsing
+- Added `drive.activity.readonly` OAuth scope (requires re-auth: `npm run auth`)
+- Fixed dotenv/MCP env var conflict — `.env` now loads with `override: true` to prevent stale cached tokens
+- 56 total tools (was 55)
 
 ### v2.2.0 — 2026-03-23
 - `gdocs_get_document` now renders tables as pipe-delimited markdown — previously table content was silently dropped

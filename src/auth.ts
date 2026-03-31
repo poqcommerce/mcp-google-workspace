@@ -12,6 +12,7 @@ const SCOPES = [
   'https://www.googleapis.com/auth/drive',  // Full Drive access - can see all files
   'https://www.googleapis.com/auth/documents',
   'https://www.googleapis.com/auth/presentations',
+  'https://www.googleapis.com/auth/drive.activity.readonly',
 ];
 
 async function authenticate() {
@@ -77,6 +78,7 @@ async function authenticate() {
           `);
           
           console.log('\n🎉 Authorization successful!');
+          console.log('\nGranted scopes:', tokens.scope);
           console.log('\nAuthorized services:');
           console.log('  ✓ Google Sheets (read/write)');
           console.log('  ✓ Google Drive (full access - all files)');

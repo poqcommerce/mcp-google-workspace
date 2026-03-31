@@ -1,4 +1,6 @@
-import 'dotenv/config';
+import { config as dotenvConfig } from 'dotenv';
+// Force dotenv to override process.env — MCP clients may cache stale env vars
+dotenvConfig({ override: true });
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import {
@@ -66,11 +68,12 @@ class GoogleWorkspaceMCP {
       const drive = google.drive({ version: 'v3', auth: this.auth });
       const docs = google.docs({ version: 'v1', auth: this.auth });
       const slidesApi = google.slides({ version: 'v1', auth: this.auth });
+      const driveActivity = google.driveactivity({ version: 'v2', auth: this.auth });
 
       // Initialize domain handlers
       this.sheetsHandler = new SheetsHandler(sheets, drive);
       this.docsHandler = new DocsHandler(docs, drive);
-      this.driveHandler = new DriveHandler(drive);
+      this.driveHandler = new DriveHandler(drive, driveActivity);
       this.slidesHandler = new SlidesHandler(slidesApi, drive);
       this.authHandler = new AuthHandler(this.auth);
 

@@ -1,4 +1,4 @@
-import { drive_v3 } from 'googleapis';
+import { drive_v3, driveactivity_v2 } from 'googleapis';
 import type {
   MoveFileRequest,
   BatchMoveRequest,
@@ -15,6 +15,7 @@ import type {
   CreateCommentRequest,
   ReplyToCommentRequest,
   DeleteCommentRequest,
+  SuggestionActivityRequest,
   ToolDefinition,
   ToolResponse,
 } from '../types.js';
@@ -274,13 +275,31 @@ export function getDriveToolDefinitions(): ToolDefinition[] {
         required: ['fileId', 'commentId'],
       },
     },
+    {
+      name: 'gdrive_suggestion_activity',
+      description:
+        'Get suggestion activity for a Google Doc — who made suggestions and when. ' +
+        'Useful for attributing redline changes to specific parties. ' +
+        'Note: only captures suggestions made natively in Google Docs, not tracked changes imported from Word. ' +
+        'Requires drive.activity.readonly scope (users may need to re-authorise).',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          fileId: { type: 'string', description: 'ID of the Google Doc' },
+        },
+        required: ['fileId'],
+      },
+    },
   ];
 }
 
 // ── Handler class ──────────────────────────────────────────────────────────────
 
 export class DriveHandler {
-  constructor(private drive: drive_v3.Drive) {}
+  constructor(
+    private drive: drive_v3.Drive,
+    private driveActivity?: driveactivity_v2.Driveactivity,
+  ) {}
 
   /** Route a tool call to the appropriate handler. Returns null if not handled. */
   async handleTool(name: string, args: any): Promise<ToolResponse | null> {
@@ -321,6 +340,8 @@ export class DriveHandler {
         return this.handleReplyToComment(this.validateReplyToCommentArgs(args));
       case 'gdrive_delete_comment':
         return this.handleDeleteComment(this.validateDeleteCommentArgs(args));
+      case 'gdrive_suggestion_activity':
+        return this.handleSuggestionActivity(this.validateSuggestionActivityArgs(args));
       default:
         return null;
     }
@@ -470,6 +491,12 @@ export class DriveHandler {
     if (!args.fileId || typeof args.fileId !== 'string') throw new Error('Invalid fileId: expected non-empty string');
     if (!args.commentId || typeof args.commentId !== 'string') throw new Error('Invalid commentId: expected non-empty string');
     return { fileId: args.fileId, commentId: args.commentId };
+  }
+
+  private validateSuggestionActivityArgs(args: any): SuggestionActivityRequest {
+    if (!args || typeof args !== 'object') throw new Error('Invalid arguments: expected object');
+    if (!args.fileId || typeof args.fileId !== 'string') throw new Error('Invalid fileId: expected non-empty string');
+    return { fileId: args.fileId };
   }
 
   // ── Handlers ───────────────────────────────────────────────────────────────
@@ -1062,6 +1089,118 @@ export class DriveHandler {
       });
     } catch (error) {
       return errorResponse('deleting comment', error);
+    }
+  }
+
+  private async handleSuggestionActivity(args: SuggestionActivityRequest): Promise<ToolResponse> {
+    if (!this.driveActivity) {
+      return errorResponse(
+        'getting suggestion activity',
+        new Error(
+          'Drive Activity API not available. Add the drive.activity.readonly scope and re-authorise: ' +
+            'run `npm run auth` to update your token.',
+        ),
+      );
+    }
+
+    try {
+      const activities: {
+        actor: string;
+        action: string;
+        time: string;
+      }[] = [];
+
+      let pageToken: string | undefined;
+      do {
+        const response = await this.driveActivity.activity.query({
+          requestBody: {
+            itemName: `items/${args.fileId}`,
+            filter: 'detail.action_detail_case:COMMENT',
+            pageToken,
+          },
+        });
+
+        for (const activity of response.data.activities || []) {
+          // Filter to suggestion-related actions only
+          const suggestion = activity.primaryActionDetail?.comment?.suggestion;
+          if (!suggestion) continue;
+
+          const actor =
+            activity.actors?.[0]?.user?.knownUser?.personName ||
+            activity.actors?.[0]?.user?.unknownUser?.toString() ||
+            'Unknown';
+
+          const time =
+            activity.timestamp ||
+            activity.timeRange?.startTime ||
+            '';
+
+          const subtype = suggestion.subtype || 'UNKNOWN';
+          const actionMap: Record<string, string> = {
+            ADDED: 'added suggestion',
+            DELETED: 'deleted suggestion',
+            REPLY_ADDED: 'replied to suggestion',
+            REPLY_DELETED: 'deleted suggestion reply',
+            ACCEPTED: 'accepted suggestion',
+            REJECTED: 'rejected suggestion',
+            ACCEPT_DELETED: 'deleted accepted suggestion',
+            REJECT_DELETED: 'deleted rejected suggestion',
+          };
+
+          activities.push({
+            actor,
+            action: actionMap[subtype] || subtype,
+            time,
+          });
+        }
+
+        pageToken = response.data.nextPageToken || undefined;
+      } while (pageToken);
+
+      if (activities.length === 0) {
+        return textResponse('No suggestion activity found for this document.');
+      }
+
+      // Sort by time descending
+      activities.sort((a, b) => (b.time || '').localeCompare(a.time || ''));
+
+      // Group by actor for a summary
+      const byActor = new Map<string, { actions: string[]; earliest: string; latest: string }>();
+      for (const a of activities) {
+        if (!byActor.has(a.actor)) {
+          byActor.set(a.actor, { actions: [], earliest: a.time, latest: a.time });
+        }
+        const entry = byActor.get(a.actor)!;
+        entry.actions.push(a.action);
+        if (a.time && (!entry.earliest || a.time < entry.earliest)) entry.earliest = a.time;
+        if (a.time && (!entry.latest || a.time > entry.latest)) entry.latest = a.time;
+      }
+
+      let summary = `--- Suggestion Activity (${activities.length} events) ---\n`;
+      summary += '\nBy actor:\n';
+      for (const [actor, data] of byActor) {
+        const actionCounts = new Map<string, number>();
+        for (const action of data.actions) {
+          actionCounts.set(action, (actionCounts.get(action) || 0) + 1);
+        }
+        const actionSummary = [...actionCounts.entries()]
+          .map(([action, count]) => `${count}x ${action}`)
+          .join(', ');
+        const timeRange =
+          data.earliest === data.latest
+            ? data.earliest
+            : `${data.earliest} to ${data.latest}`;
+        summary += `  ${actor}: ${actionSummary} (${timeRange})\n`;
+      }
+
+      summary += '\nTimeline:\n';
+      for (const a of activities) {
+        summary += `  ${a.time} — ${a.actor}: ${a.action}\n`;
+      }
+
+      return textResponse(summary);
+    } catch (error) {
+      return errorResponse('getting suggestion activity', error);
     }
   }
 }

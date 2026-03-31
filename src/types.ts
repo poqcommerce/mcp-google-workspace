@@ -144,6 +144,10 @@ export interface DeleteCommentRequest {
   commentId: string;
 }
 
+export interface SuggestionActivityRequest {
+  fileId: string;
+}
+
 // ── Shared ─────────────────────────────────────────────────────────────────────
 
 export interface ToolResponse {

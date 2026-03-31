@@ -447,20 +447,18 @@ export class DocsHandler {
         id: string;
         type: 'insertion' | 'deletion' | 'format';
         text?: string;
-        author?: string;
+        context?: string;
       }[] = [];
 
-      // Track suggestion authors from the suggestionsViewMode metadata
-      const suggestionAuthors = new Map<string, string>();
-      if (doc.suggestedDocumentStyleChanges) {
-        for (const [id, change] of Object.entries(doc.suggestedDocumentStyleChanges)) {
-          const author = (change as any)?.documentStyleSuggestionState?.author?.displayName;
-          if (author) suggestionAuthors.set(id, author);
-        }
-      }
+      // Track the current section heading for suggestion context
+      let currentHeading = '';
 
       /** Extract text and suggestions from paragraph elements */
-      const processParagraph = (elements: docs_v1.Schema$ParagraphElement[]): string => {
+      const processParagraph = (elements: docs_v1.Schema$ParagraphElement[], headingText?: string): string => {
+        // Update current heading if this paragraph is a heading
+        if (headingText !== undefined) {
+          currentHeading = headingText;
+        }
         let text = '';
         for (const elem of elements) {
           const run = elem.textRun;
@@ -472,11 +470,11 @@ export class DocsHandler {
 
           if (insertionIds.length > 0) {
             for (const id of insertionIds) {
-              suggestions.push({ id, type: 'insertion', text: runText.replace(/\n$/, '') });
+              suggestions.push({ id, type: 'insertion', text: runText.replace(/\n$/, ''), context: currentHeading });
             }
           } else if (deletionIds.length > 0) {
             for (const id of deletionIds) {
-              suggestions.push({ id, type: 'deletion', text: runText.replace(/\n$/, '') });
+              suggestions.push({ id, type: 'deletion', text: runText.replace(/\n$/, ''), context: currentHeading });
             }
           }
 
@@ -484,7 +482,7 @@ export class DocsHandler {
             for (const [id, change] of Object.entries(run.suggestedTextStyleChanges)) {
               const existing = suggestions.find((s) => s.id === id && s.type === 'format');
               if (!existing) {
-                suggestions.push({ id, type: 'format', text: runText.replace(/\n$/, '') });
+                suggestions.push({ id, type: 'format', text: runText.replace(/\n$/, ''), context: currentHeading });
               }
             }
           }
@@ -531,7 +529,12 @@ export class DocsHandler {
         let text = '';
         for (const element of elements) {
           if (element.paragraph?.elements) {
-            text += processParagraph(element.paragraph.elements);
+            const isHeading = element.paragraph.paragraphStyle?.namedStyleType?.startsWith('HEADING');
+            // Extract plain text for heading context (before processing suggestions)
+            const headingLabel = isHeading
+              ? element.paragraph.elements.map((e) => e.textRun?.content || '').join('').trim()
+              : undefined;
+            text += processParagraph(element.paragraph.elements, headingLabel);
           } else if (element.table) {
             text += processTable(element.table);
           }
@@ -559,13 +562,15 @@ export class DocsHandler {
       let suggestionsInfo = '';
       if (suggestions.length > 0) {
         // Group by suggestion ID to pair insertions and deletions
-        const grouped = new Map<string, { insertions: string[]; deletions: string[]; formats: string[] }>();
+        const grouped = new Map<string, { insertions: string[]; deletions: string[]; formats: string[]; context: string }>();
         for (const s of suggestions) {
-          if (!grouped.has(s.id)) grouped.set(s.id, { insertions: [], deletions: [], formats: [] });
+          if (!grouped.has(s.id)) grouped.set(s.id, { insertions: [], deletions: [], formats: [], context: s.context || '' });
           const group = grouped.get(s.id)!;
           if (s.type === 'insertion' && s.text) group.insertions.push(s.text);
           else if (s.type === 'deletion' && s.text) group.deletions.push(s.text);
           else if (s.type === 'format' && s.text) group.formats.push(s.text);
+          // Keep the most specific context (first non-empty wins)
+          if (!group.context && s.context) group.context = s.context;
         }
 
         const insertionCount = [...grouped.values()].filter((g) => g.insertions.length > 0).length;
@@ -577,7 +582,8 @@ export class DocsHandler {
         let i = 1;
         for (const [id, group] of grouped) {
           if (group.deletions.length > 0 || group.insertions.length > 0) {
-            suggestionsInfo += `\n${i}. `;
+            const section = group.context ? `[${group.context}] ` : '';
+            suggestionsInfo += `\n${i}. ${section}`;
             if (group.deletions.length > 0) {
               suggestionsInfo += `DELETE: "${group.deletions.join('')}"`;
             }
