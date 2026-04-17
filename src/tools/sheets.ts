@@ -128,7 +128,11 @@ export function getSheetsToolDefinitions(): ToolDefinition[] {
               properties: {
                 range: {
                   type: 'string',
-                  description: 'A1 notation range (e.g. "Sheet1!A1:Z1" for header row)',
+                  description: 'A1 notation range. Accepts "A1:Z1" or "Sheet1!A1:Z1". If no sheet prefix and no sheetId, defaults to the first sheet.',
+                },
+                sheetId: {
+                  type: 'number',
+                  description: 'Optional numeric sheet ID. Overrides any sheet name in the range. Get it from gsheets_get_spreadsheet_info.',
                 },
                 format: {
                   type: 'object',
@@ -845,18 +849,56 @@ export class SheetsHandler {
 
   private async handleFormatCells(args: FormatCellsRequest): Promise<ToolResponse> {
     try {
-      const requests = args.requests.map((req: any) => {
-        const range = a1ToGridRange(req.range);
-        return {
+      // Build a sheetName → sheetId lookup from spreadsheet metadata.
+      // Needed because newly created sheets don't have sheetId=0.
+      let sheetLookup: Map<string, number> | null = null;
+      let defaultSheetId: number | null = null;
+      const resolveLookup = async () => {
+        if (sheetLookup !== null) return;
+        const info = await this.sheets.spreadsheets.get({ spreadsheetId: args.spreadsheetId });
+        sheetLookup = new Map();
+        for (const sheet of info.data.sheets || []) {
+          const title = sheet.properties?.title;
+          const id = sheet.properties?.sheetId;
+          if (title && typeof id === 'number') sheetLookup.set(title, id);
+          if (defaultSheetId === null && typeof id === 'number') defaultSheetId = id;
+        }
+      };
+
+      const requests = [];
+      for (const req of args.requests as any[]) {
+        const parsed = a1ToGridRange(req.range);
+        let sheetId: number | undefined = req.sheetId;
+
+        if (sheetId === undefined && parsed.sheetName) {
+          await resolveLookup();
+          sheetId = sheetLookup!.get(parsed.sheetName);
+          if (sheetId === undefined) {
+            throw new Error(`Sheet not found: "${parsed.sheetName}"`);
+          }
+        }
+
+        if (sheetId === undefined) {
+          await resolveLookup();
+          sheetId = defaultSheetId!;
+        }
+
+        requests.push({
           repeatCell: {
-            range,
+            range: {
+              sheetId,
+              startRowIndex: parsed.startRowIndex,
+              endRowIndex: parsed.endRowIndex,
+              startColumnIndex: parsed.startColumnIndex,
+              endColumnIndex: parsed.endColumnIndex,
+            },
             cell: { userEnteredFormat: req.format },
             fields: Object.keys(req.format)
               .map((key) => `userEnteredFormat.${key}`)
               .join(','),
           },
-        };
-      });
+        });
+      }
 
       await this.sheets.spreadsheets.batchUpdate({
         spreadsheetId: args.spreadsheetId,

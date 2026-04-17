@@ -2,11 +2,21 @@ import { sheets_v4 } from 'googleapis';
 import type { ToolResponse } from './types.js';
 
 /**
- * Convert A1 notation (e.g. "A1:C3") to a GridRange object.
+ * Convert A1 notation (e.g. "A1:C3" or "Sheet1!A1:C3") to a GridRange object.
  * Handles multi-letter columns (AA, AB, etc).
+ * Returns the sheet name separately so callers can resolve it to a sheetId if needed.
  */
-export function a1ToGridRange(a1Range: string, sheetId: number = 0): sheets_v4.Schema$GridRange {
-  const match = a1Range.match(/^([A-Z]+)(\d+):([A-Z]+)(\d+)$/);
+export function a1ToGridRange(a1Range: string, sheetId: number = 0): sheets_v4.Schema$GridRange & { sheetName?: string } {
+  // Strip optional sheet name prefix: "Sheet1!A1:C3" → sheetName="Sheet1", rangePart="A1:C3"
+  let sheetName: string | undefined;
+  let rangePart = a1Range;
+  const prefixMatch = a1Range.match(/^(?:'([^']+)'|([^!]+))!(.+)$/);
+  if (prefixMatch) {
+    sheetName = prefixMatch[1] || prefixMatch[2];
+    rangePart = prefixMatch[3];
+  }
+
+  const match = rangePart.match(/^([A-Z]+)(\d+):([A-Z]+)(\d+)$/);
   if (!match) {
     throw new Error(`Invalid A1 range: ${a1Range}`);
   }
@@ -19,6 +29,7 @@ export function a1ToGridRange(a1Range: string, sheetId: number = 0): sheets_v4.S
     endRowIndex: parseInt(endRow),
     startColumnIndex: columnToIndex(startCol),
     endColumnIndex: columnToIndex(endCol) + 1,
+    sheetName,
   };
 }
 
