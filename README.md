@@ -1,8 +1,8 @@
 # Google Workspace MCP Server
 
-An MCP server that gives Claude (or any MCP-compatible AI) full read/write access to Google Sheets, Docs, Drive, and Slides. 58 tools, batch operations throughout, and a template workflow for branded presentations.
+An MCP server that gives Claude (or any MCP-compatible AI) full read/write access to Google Sheets, Docs, Drive, and Slides. 59 tools, batch operations throughout, and a template workflow for branded presentations.
 
-**Version:** 2.4.0 | **Last Updated:** 2026-03-31 | **Tools:** 58
+**Version:** 2.5.0 | **Last Updated:** 2026-04-17 | **Tools:** 59
 
 ---
 
@@ -144,7 +144,7 @@ Restart Claude, then try asking: "Search my Google Drive for recent documents." 
 
 ## Tools Reference
 
-### Google Sheets — 12 tools
+### Google Sheets — 13 tools
 
 | Tool | Description |
 |------|-------------|
@@ -152,11 +152,12 @@ Restart Claude, then try asking: "Search my Google Drive for recent documents." 
 | `gsheets_read_data` | Read data from a range |
 | `gsheets_batch_update` | Update multiple ranges in a single API call |
 | `gsheets_append_rows` | Add rows to the end of a sheet |
-| `gsheets_format_cells` | Apply styling (bold, colours, borders, number formats) |
+| `gsheets_format_cells` | Apply cell styling (bold, colours, alignment, wrapping, borders, number formats) |
+| `gsheets_format_dimensions` | Set column widths, row heights, auto-resize, merge cells |
 | `gsheets_get_spreadsheet_info` | Get sheet names, row/column counts, metadata |
 | `gsheets_add_sheet` | Add a new sheet tab |
 | `gsheets_delete_sheet` | Remove a sheet tab |
-| `gsheets_rename_sheet` | Rename a sheet tab |
+| `gsheets_rename_sheet` | Rename a tab (also sets tab colour, frozen rows/cols, visibility) |
 | `gsheets_duplicate_sheet` | Copy a sheet within or between spreadsheets |
 | `gsheets_insert_delete_dimensions` | Insert or delete rows/columns |
 | `gsheets_sort_range` | Sort data by one or more columns |
@@ -356,7 +357,9 @@ A good style guide for MCP tools covers:
 - **Naming conventions** — file/folder naming patterns
 - **Workflow preferences** — e.g. "always create documents in the Projects folder"
 
-Keep it concise. Claude reads the entire file at session start, so shorter guides are more likely to be followed consistently. See [`docs/example-style-guide.md`](docs/example-style-guide.md) for a full example.
+Keep it concise. Claude reads the entire file at session start, so shorter guides are more likely to be followed consistently. Two ready-to-adapt examples are included:
+- [`docs/example-style-guide.md`](docs/example-style-guide.md) — Slides table formatting
+- [`docs/example-sheets-style-guide.md`](docs/example-sheets-style-guide.md) — Google Sheets styling (headers, column widths, section separators)
 
 ---
 
@@ -370,7 +373,7 @@ mcp-google-workspace/
 │   ├── utils.ts          # Helpers (a1ToGridRange, response builders)
 │   ├── auth.ts           # Standalone OAuth flow (npm run auth)
 │   └── tools/
-│       ├── sheets.ts     # 12 tools
+│       ├── sheets.ts     # 13 tools
 │       ├── docs.ts       # 7 tools
 │       ├── drive.ts      # 20 tools
 │       ├── slides.ts     # 17 tools
@@ -416,6 +419,12 @@ npm start         # Start server directly
 ---
 
 ## Version History
+
+### v2.5.0 — 2026-04-17
+- `gsheets_format_dimensions` — new tool for column widths, row heights, auto-resize, and merge cells. Fills the gap that required manual formatting after Claude-created sheets
+- `gsheets_format_cells` description expanded to document supported passthrough properties (wrap, alignment, borders, number formats, etc.) so Claude knows what's possible
+- Added `docs/example-sheets-style-guide.md` — a ready-to-adapt style guide for CLAUDE.md covering headers, column widths, section separators, number formats
+- 59 total tools (was 58)
 
 ### v2.4.0 — 2026-03-31
 - `gdrive_download_file` — new tool to download any Drive file to local disk. Auto-detects Google Workspace files and exports them (xlsx, pdf, docx, pptx, csv, etc.). Non-Google files (PDFs, images) download directly

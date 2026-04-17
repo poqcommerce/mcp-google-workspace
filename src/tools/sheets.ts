@@ -107,7 +107,12 @@ export function getSheetsToolDefinitions(): ToolDefinition[] {
     },
     {
       name: 'gsheets_format_cells',
-      description: 'Apply formatting to cell ranges',
+      description:
+        'Apply cell-level formatting to one or more ranges. The format object maps directly to Google Sheets userEnteredFormat. ' +
+        'Supports: textFormat (bold, italic, underline, strikethrough, fontSize, fontFamily, foregroundColor), ' +
+        'backgroundColor, horizontalAlignment (LEFT/CENTER/RIGHT), verticalAlignment (TOP/MIDDLE/BOTTOM), ' +
+        'wrapStrategy (WRAP/OVERFLOW_CELL/CLIP), numberFormat ({type, pattern}), ' +
+        'borders ({top,bottom,left,right: {style, color}}). Colours use {red,green,blue} 0-1 range.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -117,17 +122,18 @@ export function getSheetsToolDefinitions(): ToolDefinition[] {
           },
           requests: {
             type: 'array',
-            description: 'Array of formatting requests',
+            description: 'Array of formatting requests. Each has a range (A1 notation) and format object.',
             items: {
               type: 'object',
               properties: {
                 range: {
                   type: 'string',
-                  description: 'A1 notation range to format',
+                  description: 'A1 notation range (e.g. "Sheet1!A1:Z1" for header row)',
                 },
                 format: {
                   type: 'object',
-                  description: 'Formatting options (bold, backgroundColor, etc.)',
+                  description:
+                    'Formatting object. Example: {textFormat: {bold: true, fontSize: 11}, backgroundColor: {red: 0.9, green: 0.9, blue: 0.9}, wrapStrategy: "WRAP", horizontalAlignment: "CENTER"}',
                 },
               },
             },
@@ -402,6 +408,80 @@ export function getSheetsToolDefinitions(): ToolDefinition[] {
         required: ['spreadsheetId', 'sheetId', 'startRowIndex', 'endRowIndex', 'startColumnIndex', 'endColumnIndex', 'sortSpecs'],
       },
     },
+    {
+      name: 'gsheets_format_dimensions',
+      description:
+        'Set column widths, row heights, auto-resize columns/rows to fit content, or merge cell ranges. ' +
+        'All operations happen in a single batchUpdate call. ' +
+        'Use this alongside gsheets_format_cells (which handles text formatting, alignment, wrapping, borders).',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          spreadsheetId: {
+            type: 'string',
+            description: 'The ID of the spreadsheet',
+          },
+          sheetId: {
+            type: 'number',
+            description: 'Numeric sheet ID (from gsheets_get_spreadsheet_info)',
+          },
+          columnWidths: {
+            type: 'array',
+            description: 'Set explicit column widths in pixels. Useful for preventing truncation.',
+            items: {
+              type: 'object',
+              properties: {
+                startIndex: { type: 'number', description: 'Start column index (0-based, inclusive)' },
+                endIndex: { type: 'number', description: 'End column index (0-based, exclusive)' },
+                pixels: { type: 'number', description: 'Width in pixels (typical: 100-200)' },
+              },
+              required: ['startIndex', 'endIndex', 'pixels'],
+            },
+          },
+          rowHeights: {
+            type: 'array',
+            description: 'Set explicit row heights in pixels. Useful for wrapped header rows.',
+            items: {
+              type: 'object',
+              properties: {
+                startIndex: { type: 'number', description: 'Start row index (0-based, inclusive)' },
+                endIndex: { type: 'number', description: 'End row index (0-based, exclusive)' },
+                pixels: { type: 'number', description: 'Height in pixels (typical: 21 for single line, 40-60 for wrapped headers)' },
+              },
+              required: ['startIndex', 'endIndex', 'pixels'],
+            },
+          },
+          autoResizeColumns: {
+            type: 'array',
+            description: 'Auto-resize columns to fit content (Google picks the width). Specify index ranges.',
+            items: {
+              type: 'object',
+              properties: {
+                startIndex: { type: 'number', description: 'Start column index (0-based, inclusive)' },
+                endIndex: { type: 'number', description: 'End column index (0-based, exclusive)' },
+              },
+              required: ['startIndex', 'endIndex'],
+            },
+          },
+          merges: {
+            type: 'array',
+            description: 'Merge cell ranges. mergeType: MERGE_ALL (single merged cell), MERGE_COLUMNS (merge per column), MERGE_ROWS (merge per row).',
+            items: {
+              type: 'object',
+              properties: {
+                startRowIndex: { type: 'number' },
+                endRowIndex: { type: 'number' },
+                startColumnIndex: { type: 'number' },
+                endColumnIndex: { type: 'number' },
+                mergeType: { type: 'string', enum: ['MERGE_ALL', 'MERGE_COLUMNS', 'MERGE_ROWS'] },
+              },
+              required: ['startRowIndex', 'endRowIndex', 'startColumnIndex', 'endColumnIndex', 'mergeType'],
+            },
+          },
+        },
+        required: ['spreadsheetId', 'sheetId'],
+      },
+    },
   ];
 }
 
@@ -444,6 +524,8 @@ export class SheetsHandler {
         return this.handleInsertDeleteDimensions(this.validateDimensionArgs(args));
       case 'gsheets_sort_range':
         return this.handleSortRange(this.validateSortRangeArgs(args));
+      case 'gsheets_format_dimensions':
+        return this.handleFormatDimensions(args);
       default:
         return null;
     }
@@ -1136,6 +1218,98 @@ export class SheetsHandler {
       });
     } catch (error) {
       return errorResponse('sorting range', error);
+    }
+  }
+
+  private async handleFormatDimensions(args: any): Promise<ToolResponse> {
+    try {
+      this.requireObject(args);
+      const spreadsheetId = this.requireString(args, 'spreadsheetId');
+      const sheetId = this.requireNumber(args, 'sheetId');
+
+      const requests: any[] = [];
+
+      if (Array.isArray(args.columnWidths)) {
+        for (const cw of args.columnWidths) {
+          requests.push({
+            updateDimensionProperties: {
+              range: {
+                sheetId,
+                dimension: 'COLUMNS',
+                startIndex: cw.startIndex,
+                endIndex: cw.endIndex,
+              },
+              properties: { pixelSize: cw.pixels },
+              fields: 'pixelSize',
+            },
+          });
+        }
+      }
+
+      if (Array.isArray(args.rowHeights)) {
+        for (const rh of args.rowHeights) {
+          requests.push({
+            updateDimensionProperties: {
+              range: {
+                sheetId,
+                dimension: 'ROWS',
+                startIndex: rh.startIndex,
+                endIndex: rh.endIndex,
+              },
+              properties: { pixelSize: rh.pixels },
+              fields: 'pixelSize',
+            },
+          });
+        }
+      }
+
+      if (Array.isArray(args.autoResizeColumns)) {
+        for (const ar of args.autoResizeColumns) {
+          requests.push({
+            autoResizeDimensions: {
+              dimensions: {
+                sheetId,
+                dimension: 'COLUMNS',
+                startIndex: ar.startIndex,
+                endIndex: ar.endIndex,
+              },
+            },
+          });
+        }
+      }
+
+      if (Array.isArray(args.merges)) {
+        for (const m of args.merges) {
+          requests.push({
+            mergeCells: {
+              range: {
+                sheetId,
+                startRowIndex: m.startRowIndex,
+                endRowIndex: m.endRowIndex,
+                startColumnIndex: m.startColumnIndex,
+                endColumnIndex: m.endColumnIndex,
+              },
+              mergeType: m.mergeType,
+            },
+          });
+        }
+      }
+
+      if (requests.length === 0) {
+        throw new Error('No operations provided. Specify at least one of: columnWidths, rowHeights, autoResizeColumns, merges.');
+      }
+
+      await this.sheets.spreadsheets.batchUpdate({
+        spreadsheetId,
+        requestBody: { requests },
+      });
+
+      return successResponse({
+        success: true,
+        operationsApplied: requests.length,
+      });
+    } catch (error) {
+      return errorResponse('formatting dimensions', error);
     }
   }
 }
