@@ -536,6 +536,8 @@ export class DriveHandler {
         pageSize: args.pageSize,
         pageToken: args.pageToken,
         fields: 'nextPageToken, files(id, name, mimeType, size, modifiedTime, createdTime)',
+        supportsAllDrives: true,
+        includeItemsFromAllDrives: true,
       });
 
       const files = response.data.files || [];
@@ -557,6 +559,7 @@ export class DriveHandler {
       const fileInfo = await this.drive.files.get({
         fileId: args.fileId,
         fields: 'name, mimeType, size',
+        supportsAllDrives: true,
       });
 
       const mimeType = fileInfo.data.mimeType;
@@ -570,7 +573,7 @@ export class DriveHandler {
         const response = await this.drive.files.export({ fileId: args.fileId, mimeType: 'text/csv' });
         content = response.data as string;
       } else if (mimeType?.startsWith('text/') || mimeType === 'application/json') {
-        const response = await this.drive.files.get({ fileId: args.fileId, alt: 'media' });
+        const response = await this.drive.files.get({ fileId: args.fileId, alt: 'media', supportsAllDrives: true });
         content = response.data as string;
       } else {
         throw new Error(
@@ -588,7 +591,8 @@ export class DriveHandler {
     try {
       const response = await this.drive.files.get({
         fileId: args.fileId,
-        fields: 'id, name, mimeType, size, createdTime, modifiedTime, owners, permissions',
+        fields: 'id, name, mimeType, size, createdTime, modifiedTime, owners, permissions, driveId',
+        supportsAllDrives: true,
       });
 
       const file = response.data;
@@ -608,7 +612,7 @@ export class DriveHandler {
 
   private async handleMoveFile(args: MoveFileRequest): Promise<ToolResponse> {
     try {
-      const file = await this.drive.files.get({ fileId: args.fileId, fields: 'id, name, parents' });
+      const file = await this.drive.files.get({ fileId: args.fileId, fields: 'id, name, parents', supportsAllDrives: true });
       const previousParents = file.data.parents?.join(',');
 
       const response = await this.drive.files.update({
@@ -616,6 +620,7 @@ export class DriveHandler {
         addParents: args.targetFolderId,
         removeParents: previousParents,
         fields: 'id, name, parents',
+        supportsAllDrives: true,
       });
 
       return successResponse({
@@ -639,13 +644,14 @@ export class DriveHandler {
 
       for (const fileId of args.fileIds) {
         try {
-          const file = await this.drive.files.get({ fileId, fields: 'id, name, parents' });
+          const file = await this.drive.files.get({ fileId, fields: 'id, name, parents', supportsAllDrives: true });
           const previousParents = file.data.parents?.join(',');
           await this.drive.files.update({
             fileId,
             addParents: args.targetFolderId,
             removeParents: previousParents,
             fields: 'id, parents',
+            supportsAllDrives: true,
           });
           results.success.push(fileId);
         } catch (error) {
@@ -681,6 +687,7 @@ export class DriveHandler {
       const response = await this.drive.files.create({
         requestBody: fileMetadata,
         fields: 'id, name, parents, webViewLink',
+        supportsAllDrives: true,
       });
 
       return successResponse({
@@ -697,7 +704,7 @@ export class DriveHandler {
 
   private async handleCopyFolder(args: CopyFolderRequest): Promise<ToolResponse> {
     try {
-      const sourceFolder = await this.drive.files.get({ fileId: args.sourceFolderId, fields: 'id, name' });
+      const sourceFolder = await this.drive.files.get({ fileId: args.sourceFolderId, fields: 'id, name', supportsAllDrives: true });
       const newFolderName = args.newName || `Copy of ${sourceFolder.data.name}`;
 
       const newFolderMetadata: any = {
@@ -711,12 +718,15 @@ export class DriveHandler {
       const newFolder = await this.drive.files.create({
         requestBody: newFolderMetadata,
         fields: 'id, name, webViewLink',
+        supportsAllDrives: true,
       });
       const newFolderId = newFolder.data.id!;
 
       const files = await this.drive.files.list({
         q: `'${args.sourceFolderId}' in parents and trashed=false`,
         fields: 'files(id, name, mimeType)',
+        supportsAllDrives: true,
+        includeItemsFromAllDrives: true,
       });
 
       const copiedFiles = { folders: 0, files: 0, errors: [] as string[] };
@@ -734,6 +744,7 @@ export class DriveHandler {
               fileId: file.id!,
               requestBody: { name: file.name, parents: [newFolderId] },
               fields: 'id, name',
+              supportsAllDrives: true,
             });
             if (copiedFile.data.id) {
               copiedFiles.files++;
@@ -772,6 +783,7 @@ export class DriveHandler {
         fileId: args.fileId,
         requestBody,
         fields: 'id, name, mimeType, parents, webViewLink',
+        supportsAllDrives: true,
       });
 
       return successResponse({
@@ -799,6 +811,8 @@ export class DriveHandler {
         pageSize: args.maxResults,
         fields: 'files(id, name, mimeType, modifiedTime, webViewLink, owners)',
         orderBy: 'modifiedTime desc',
+        supportsAllDrives: true,
+        includeItemsFromAllDrives: true,
       });
 
       const files = response.data.files || [];
@@ -853,6 +867,8 @@ export class DriveHandler {
         { fileId: args.fileId, mimeType: args.mimeType },
         { responseType: 'arraybuffer' },
       );
+      // Note: files.export does not accept supportsAllDrives in the Drive v3 API.
+      // Shared Drive files are supported via the file's read access — no extra flag needed here.
 
       const buffer = Buffer.from(response.data as ArrayBuffer);
       const base64 = buffer.toString('base64');
@@ -925,7 +941,13 @@ export class DriveHandler {
           ? 'files(id, name, mimeType, size, createdTime, modifiedTime, owners, webViewLink)'
           : 'files(id, name, mimeType)';
 
-        const response = await this.drive.files.list({ q: query, fields, pageSize: 1000 });
+        const response = await this.drive.files.list({
+          q: query,
+          fields,
+          pageSize: 1000,
+          supportsAllDrives: true,
+          includeItemsFromAllDrives: true,
+        });
         const files = response.data.files || [];
         const results: any[] = [];
 
@@ -973,6 +995,7 @@ export class DriveHandler {
         fileId: args.fileId,
         fields:
           'permissions(id, type, role, emailAddress, domain, displayName, expirationTime, deleted)',
+        supportsAllDrives: true,
       });
 
       const permissions = response.data.permissions || [];
@@ -1132,7 +1155,7 @@ export class DriveHandler {
       };
 
       // Check if this is a Google Workspace file (needs export) or a regular file (direct download)
-      const fileInfo = await this.drive.files.get({ fileId: args.fileId, fields: 'mimeType,name' });
+      const fileInfo = await this.drive.files.get({ fileId: args.fileId, fields: 'mimeType,name', supportsAllDrives: true });
       const isGoogleFile = fileInfo.data.mimeType?.startsWith('application/vnd.google-apps.');
 
       let buffer: Buffer;
@@ -1152,7 +1175,7 @@ export class DriveHandler {
         buffer = Buffer.from(response.data as ArrayBuffer);
       } else {
         const response = await this.drive.files.get(
-          { fileId: args.fileId, alt: 'media' },
+          { fileId: args.fileId, alt: 'media', supportsAllDrives: true },
           { responseType: 'arraybuffer' },
         );
         buffer = Buffer.from(response.data as ArrayBuffer);

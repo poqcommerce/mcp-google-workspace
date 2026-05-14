@@ -877,13 +877,14 @@ export class DocsHandler {
       }
 
       if (args.parentFolderId) {
-        const file = await this.drive.files.get({ fileId: documentId, fields: 'parents' });
+        const file = await this.drive.files.get({ fileId: documentId, fields: 'parents', supportsAllDrives: true });
         const previousParents = file.data.parents?.join(',');
         await this.drive.files.update({
           fileId: documentId,
           addParents: args.parentFolderId,
           removeParents: previousParents,
           fields: 'id, parents',
+          supportsAllDrives: true,
         });
       }
 
@@ -1683,6 +1684,7 @@ export class DocsHandler {
         fileId: args.templateId,
         requestBody: copyBody,
         fields: 'id,name,parents',
+        supportsAllDrives: true,
       });
 
       const newDocId = copyResponse.data.id;

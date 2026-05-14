@@ -2,7 +2,7 @@
 
 An MCP server that gives Claude (or any MCP-compatible AI) full read/write access to Google Sheets, Docs, Drive, and Slides. 68 tools, batch operations throughout, and a template workflow for branded presentations.
 
-**Version:** 2.6.2 | **Last Updated:** 2026-05-14 | **Tools:** 68
+**Version:** 2.6.3 | **Last Updated:** 2026-05-14 | **Tools:** 68
 
 ---
 
@@ -429,6 +429,9 @@ npm start         # Start server directly
 ---
 
 ## Version History
+
+### v2.6.3 — 2026-05-14
+- **Shared Drive support fix** — every Drive API call (`files.get`, `files.copy`, `files.list`, `files.update`, `files.create`, `permissions.list`) now passes `supportsAllDrives: true` and (where applicable) `includeItemsFromAllDrives: true`. Files in Shared Drives / Team Drives were previously invisible to the Drive API, breaking `gdocs_create_from_template`, `gdrive_get_file_info`, and other Drive operations. The Docs/Sheets/Slides APIs were unaffected because they don't require the flag. No new tools.
 
 ### v2.6.2 — 2026-05-14
 - `gdocs_get_style_profile` — extracts a portable JSON profile of a document's styling: page margins, every named style (TITLE, HEADING_1..6, NORMAL_TEXT) with textStyle + paragraphStyle, dominant body font, every table pattern (rows × columns, widths, borders, cell backgrounds, padding, alignment, classified purpose), and a list of "suspected headings" — short bold/large paragraphs that look like headings but lack a `namedStyleType`. Foundation for cross-document style transfer (e.g. extracting MSA styling and applying it to a CO).

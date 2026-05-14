@@ -806,6 +806,7 @@ export class SheetsHandler {
         const file = await this.drive.files.get({
           fileId: spreadsheetId,
           fields: 'parents',
+          supportsAllDrives: true,
         });
         const previousParents = file.data.parents?.join(',');
         await this.drive.files.update({
@@ -813,6 +814,7 @@ export class SheetsHandler {
           addParents: args.parentFolderId,
           removeParents: previousParents,
           fields: 'id, parents',
+          supportsAllDrives: true,
         });
       }
 

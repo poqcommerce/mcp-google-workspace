@@ -702,13 +702,14 @@ export class SlidesHandler {
       const presentationId = response.data.presentationId!;
 
       if (parentFolderId) {
-        const file = await this.drive.files.get({ fileId: presentationId, fields: 'parents' });
+        const file = await this.drive.files.get({ fileId: presentationId, fields: 'parents', supportsAllDrives: true });
         const previousParents = file.data.parents?.join(',');
         await this.drive.files.update({
           fileId: presentationId,
           addParents: parentFolderId,
           removeParents: previousParents,
           fields: 'id, parents',
+          supportsAllDrives: true,
         });
       }
 
