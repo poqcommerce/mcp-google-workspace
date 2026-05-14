@@ -1,8 +1,8 @@
 # Google Workspace MCP Server
 
-An MCP server that gives Claude (or any MCP-compatible AI) full read/write access to Google Sheets, Docs, Drive, and Slides. 67 tools, batch operations throughout, and a template workflow for branded presentations.
+An MCP server that gives Claude (or any MCP-compatible AI) full read/write access to Google Sheets, Docs, Drive, and Slides. 68 tools, batch operations throughout, and a template workflow for branded presentations.
 
-**Version:** 2.6.1 | **Last Updated:** 2026-05-14 | **Tools:** 67
+**Version:** 2.6.2 | **Last Updated:** 2026-05-14 | **Tools:** 68
 
 ---
 
@@ -162,13 +162,14 @@ Restart Claude, then try asking: "Search my Google Drive for recent documents." 
 | `gsheets_insert_delete_dimensions` | Insert or delete rows/columns |
 | `gsheets_sort_range` | Sort data by one or more columns |
 
-### Google Docs — 15 tools
+### Google Docs — 16 tools
 
 | Tool | Description |
 |------|-------------|
 | `gdocs_create_document` | Create a new document (optionally in a folder with initial content) |
 | `gdocs_create_from_template` | Copy a template doc and apply {{placeholder}} replacements in one batch |
 | `gdocs_get_document` | Read content (tables as markdown), tracked changes, detected styles, and table positions |
+| `gdocs_get_style_profile` | Extract portable JSON of margins + named styles + table patterns + suspected headings — store and reuse as a style reference |
 | `gdocs_find_text` | Find text occurrences and return their indices + enclosing paragraph range — essential after structural edits shift positions |
 | `gdocs_insert_text` | Insert text at a specific index |
 | `gdocs_append_text` | Append text to the end |
@@ -383,7 +384,7 @@ mcp-google-workspace/
 │   ├── auth.ts           # Standalone OAuth flow (npm run auth)
 │   └── tools/
 │       ├── sheets.ts     # 13 tools
-│       ├── docs.ts       # 15 tools
+│       ├── docs.ts       # 16 tools
 │       ├── drive.ts      # 20 tools
 │       ├── slides.ts     # 17 tools
 │       └── auth.ts       # 2 tools
@@ -428,6 +429,10 @@ npm start         # Start server directly
 ---
 
 ## Version History
+
+### v2.6.2 — 2026-05-14
+- `gdocs_get_style_profile` — extracts a portable JSON profile of a document's styling: page margins, every named style (TITLE, HEADING_1..6, NORMAL_TEXT) with textStyle + paragraphStyle, dominant body font, every table pattern (rows × columns, widths, borders, cell backgrounds, padding, alignment, classified purpose), and a list of "suspected headings" — short bold/large paragraphs that look like headings but lack a `namedStyleType`. Foundation for cross-document style transfer (e.g. extracting MSA styling and applying it to a CO).
+- 68 total tools (was 67)
 
 ### v2.6.1 — 2026-05-14
 - `gdocs_find_text` — locate text occurrences and return their indices, plus the enclosing paragraph range. Essential for working with docs after structural edits have shifted positions ("apply HEADING_2 to 'Signatures'" becomes a two-call recipe). Also flags whether the match is inside a table cell.

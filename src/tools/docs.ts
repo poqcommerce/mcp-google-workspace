@@ -13,6 +13,7 @@ import type {
   CreateFromTemplateRequest,
   FindTextRequest,
   DeleteRangeRequest,
+  GetStyleProfileRequest,
   ToolDefinition,
   ToolResponse,
 } from '../types.js';
@@ -333,6 +334,18 @@ export function getDocsToolDefinitions(): ToolDefinition[] {
       },
     },
     {
+      name: 'gdocs_get_style_profile',
+      description:
+        'Extract a portable JSON profile of a document\'s styling: page margins, every named style (TITLE, HEADING_1..6, NORMAL_TEXT) with its textStyle + paragraphStyle, the dominant body font, every table pattern (rows×columns, widths, borders, cell backgrounds, padding, alignment), and a list of "suspected headings" — short bold or larger paragraphs that look like headings but lack a namedStyleType. Save the output to disk to reuse as a style reference across multiple documents.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          documentId: { type: 'string', description: 'The ID of the document to extract styles from' },
+        },
+        required: ['documentId'],
+      },
+    },
+    {
       name: 'gdocs_find_text',
       description:
         'Find one or more occurrences of a text string and return their indices. For each match, returns the matched range (startIndex, endIndex) AND the enclosing paragraph range (paragraphStartIndex, paragraphEndIndex) — use the paragraph range to apply paragraph styles like headings. Also indicates whether the match is inside a table cell. Essential for working with documents after structural edits have shifted indices.',
@@ -564,6 +577,8 @@ export class DocsHandler {
         return this.handleFindText(this.validateFindTextArgs(args));
       case 'gdocs_delete_range':
         return this.handleDeleteRange(this.validateDeleteRangeArgs(args));
+      case 'gdocs_get_style_profile':
+        return this.handleGetStyleProfile(this.validateGetStyleProfileArgs(args));
       default:
         return null;
     }
@@ -804,6 +819,14 @@ export class DocsHandler {
       matchCase: args.matchCase !== false,
       firstOnly: args.firstOnly === true,
     };
+  }
+
+  private validateGetStyleProfileArgs(args: any): GetStyleProfileRequest {
+    if (!args || typeof args !== 'object') throw new Error('Invalid arguments: expected object');
+    if (!args.documentId || typeof args.documentId !== 'string') {
+      throw new Error('Invalid documentId: expected non-empty string');
+    }
+    return { documentId: args.documentId };
   }
 
   private validateDeleteRangeArgs(args: any): DeleteRangeRequest {
@@ -1814,6 +1837,280 @@ export class DocsHandler {
       });
     } catch (error) {
       return errorResponse('finding text', error);
+    }
+  }
+
+  private async handleGetStyleProfile(args: GetStyleProfileRequest): Promise<ToolResponse> {
+    try {
+      const doc = (await this.docs.documents.get({ documentId: args.documentId })).data;
+
+      // ── Document defaults (page setup) ──────────────────────────────
+      const documentDefaults: Record<string, any> = {};
+      const ds = doc.documentStyle;
+      if (ds) {
+        const dim = (d: docs_v1.Schema$Dimension | undefined | null) =>
+          d?.magnitude !== undefined && d.magnitude !== null ? d.magnitude : undefined;
+        documentDefaults.margins = {
+          top: dim(ds.marginTop),
+          bottom: dim(ds.marginBottom),
+          left: dim(ds.marginLeft),
+          right: dim(ds.marginRight),
+        };
+        if (ds.pageSize) {
+          documentDefaults.pageSize = {
+            width: dim(ds.pageSize.width),
+            height: dim(ds.pageSize.height),
+          };
+        }
+      }
+
+      // ── Named styles ────────────────────────────────────────────────
+      const namedStyles: Record<string, any> = {};
+      const dim = (d: docs_v1.Schema$Dimension | undefined | null) =>
+        d?.magnitude !== undefined && d.magnitude !== null ? d.magnitude : undefined;
+
+      const summariseTextStyle = (ts: docs_v1.Schema$TextStyle | undefined | null) => {
+        if (!ts) return undefined;
+        const result: Record<string, any> = {};
+        if (ts.weightedFontFamily?.fontFamily) result.fontFamily = ts.weightedFontFamily.fontFamily;
+        if (ts.fontSize?.magnitude) result.fontSize = ts.fontSize.magnitude;
+        if (ts.bold !== undefined && ts.bold !== null) result.bold = ts.bold;
+        if (ts.italic !== undefined && ts.italic !== null) result.italic = ts.italic;
+        if (ts.underline !== undefined && ts.underline !== null) result.underline = ts.underline;
+        const fg = ts.foregroundColor?.color?.rgbColor;
+        if (fg) result.foregroundColor = {
+          red: Math.round((fg.red || 0) * 1000) / 1000,
+          green: Math.round((fg.green || 0) * 1000) / 1000,
+          blue: Math.round((fg.blue || 0) * 1000) / 1000,
+        };
+        const bg = ts.backgroundColor?.color?.rgbColor;
+        if (bg) result.backgroundColor = {
+          red: Math.round((bg.red || 0) * 1000) / 1000,
+          green: Math.round((bg.green || 0) * 1000) / 1000,
+          blue: Math.round((bg.blue || 0) * 1000) / 1000,
+        };
+        return Object.keys(result).length > 0 ? result : undefined;
+      };
+
+      const summariseParagraphStyle = (ps: docs_v1.Schema$ParagraphStyle | undefined | null) => {
+        if (!ps) return undefined;
+        const result: Record<string, any> = {};
+        if (ps.alignment) result.alignment = ps.alignment;
+        if (ps.lineSpacing) result.lineSpacing = ps.lineSpacing;
+        const sa = dim(ps.spaceAbove); if (sa !== undefined) result.spaceAbove = sa;
+        const sb = dim(ps.spaceBelow); if (sb !== undefined) result.spaceBelow = sb;
+        const ifl = dim(ps.indentFirstLine); if (ifl !== undefined) result.indentFirstLine = ifl;
+        const is_ = dim(ps.indentStart); if (is_ !== undefined) result.indentStart = is_;
+        const ie = dim(ps.indentEnd); if (ie !== undefined) result.indentEnd = ie;
+        if (ps.keepWithNext !== undefined && ps.keepWithNext !== null) result.keepWithNext = ps.keepWithNext;
+        return Object.keys(result).length > 0 ? result : undefined;
+      };
+
+      for (const style of doc.namedStyles?.styles || []) {
+        if (!style.namedStyleType) continue;
+        const entry: Record<string, any> = {};
+        const ts = summariseTextStyle(style.textStyle);
+        const ps = summariseParagraphStyle(style.paragraphStyle);
+        if (ts) entry.textStyle = ts;
+        if (ps) entry.paragraphStyle = ps;
+        if (Object.keys(entry).length > 0) {
+          namedStyles[style.namedStyleType] = entry;
+        }
+      }
+
+      // ── Dominant body style (reusing existing extractDocStyles) ────
+      const styles = extractDocStyles(doc);
+
+      // ── Walk body for: tables, suspected headings ──────────────────
+      const tablePatterns: Array<Record<string, any>> = [];
+      const suspectedHeadings: Array<Record<string, any>> = [];
+      const bodyFontSize = styles.dominantStyle?.fontSize || 11;
+
+      const summariseCellStyle = (cs: docs_v1.Schema$TableCellStyle | undefined | null) => {
+        if (!cs) return undefined;
+        const result: Record<string, any> = {};
+        const bg = cs.backgroundColor?.color?.rgbColor;
+        if (bg) result.backgroundColor = {
+          red: Math.round((bg.red || 0) * 1000) / 1000,
+          green: Math.round((bg.green || 0) * 1000) / 1000,
+          blue: Math.round((bg.blue || 0) * 1000) / 1000,
+        };
+        const padTop = dim(cs.paddingTop);
+        const padBottom = dim(cs.paddingBottom);
+        const padLeft = dim(cs.paddingLeft);
+        const padRight = dim(cs.paddingRight);
+        if (padTop !== undefined || padBottom !== undefined || padLeft !== undefined || padRight !== undefined) {
+          if (padTop === padBottom && padTop === padLeft && padTop === padRight) {
+            result.padding = padTop;
+          } else {
+            result.padding = { top: padTop, bottom: padBottom, left: padLeft, right: padRight };
+          }
+        }
+        if (cs.contentAlignment) result.contentAlignment = cs.contentAlignment;
+        const borderTop = cs.borderTop;
+        if (borderTop?.width?.magnitude === 0) {
+          result.borders = 'NONE';
+        } else if (borderTop?.width?.magnitude) {
+          result.borders = 'ALL';
+        }
+        return Object.keys(result).length > 0 ? result : undefined;
+      };
+
+      const summariseTable = (table: docs_v1.Schema$Table, startIndex: number) => {
+        const rows = table.tableRows || [];
+        const columnCount = table.columns || (rows[0]?.tableCells?.length ?? 0);
+        const columnWidths: number[] = [];
+        for (const colProp of table.tableStyle?.tableColumnProperties || []) {
+          const w = dim(colProp.width);
+          if (w !== undefined) columnWidths.push(w);
+        }
+
+        // Sample cell style from the first cell (representative)
+        const firstCellStyle = rows[0]?.tableCells?.[0]?.tableCellStyle;
+        const firstRowFirstCell = summariseCellStyle(firstCellStyle);
+
+        // Header vs body: compare first row's first cell background to second row's
+        let headerRowBackgroundColor;
+        let bodyRowBackgroundColor;
+        const row0Bg = rows[0]?.tableCells?.[0]?.tableCellStyle?.backgroundColor?.color?.rgbColor;
+        const row1Bg = rows[1]?.tableCells?.[0]?.tableCellStyle?.backgroundColor?.color?.rgbColor;
+        if (row0Bg) {
+          headerRowBackgroundColor = {
+            red: Math.round((row0Bg.red || 0) * 1000) / 1000,
+            green: Math.round((row0Bg.green || 0) * 1000) / 1000,
+            blue: Math.round((row0Bg.blue || 0) * 1000) / 1000,
+          };
+        }
+        if (row1Bg) {
+          bodyRowBackgroundColor = {
+            red: Math.round((row1Bg.red || 0) * 1000) / 1000,
+            green: Math.round((row1Bg.green || 0) * 1000) / 1000,
+            blue: Math.round((row1Bg.blue || 0) * 1000) / 1000,
+          };
+        }
+
+        const pattern: Record<string, any> = {
+          tableStartIndex: startIndex,
+          rows: table.rows || rows.length,
+          columns: columnCount,
+        };
+        if (columnWidths.length > 0) pattern.columnWidths = columnWidths;
+        if (headerRowBackgroundColor) pattern.headerRowBackgroundColor = headerRowBackgroundColor;
+        if (bodyRowBackgroundColor) pattern.bodyRowBackgroundColor = bodyRowBackgroundColor;
+        if (firstRowFirstCell?.padding !== undefined) pattern.cellPadding = firstRowFirstCell.padding;
+        if (firstRowFirstCell?.contentAlignment) pattern.contentAlignment = firstRowFirstCell.contentAlignment;
+        if (firstRowFirstCell?.borders) pattern.borders = firstRowFirstCell.borders;
+
+        // Classify purpose heuristically
+        if (columnCount === 2 && !headerRowBackgroundColor && firstRowFirstCell?.borders === 'NONE') {
+          pattern.purpose = 'field-list-borderless';
+        } else if (columnCount === 2 && !headerRowBackgroundColor) {
+          pattern.purpose = 'field-list';
+        } else if (headerRowBackgroundColor) {
+          pattern.purpose = 'data-table';
+        }
+
+        return pattern;
+      };
+
+      const detectSuspectedHeading = (
+        para: docs_v1.Schema$Paragraph,
+        startIndex: number,
+        endIndex: number,
+      ) => {
+        const ns = para.paragraphStyle?.namedStyleType;
+        if (ns && ns !== 'NORMAL_TEXT') return; // already a heading
+
+        const text = (para.elements || [])
+          .map((e) => e.textRun?.content || '')
+          .join('')
+          .replace(/\n+$/, '')
+          .trim();
+
+        if (text.length === 0 || text.length > 80) return;
+        if (text.endsWith('.') || text.endsWith(',') || text.endsWith(':')) {
+          // colons sometimes used for headings — only reject if there's a clear sentence-end
+          if (text.endsWith('.') || text.endsWith(',')) return;
+        }
+
+        // Analyse text run styles weighted by character count
+        let boldChars = 0;
+        let totalChars = 0;
+        let weightedSize = 0;
+        for (const elem of para.elements || []) {
+          const run = elem.textRun;
+          if (!run?.content || !run.textStyle) continue;
+          const len = run.content.replace(/\n/g, '').length;
+          totalChars += len;
+          if (run.textStyle.bold) boldChars += len;
+          if (run.textStyle.fontSize?.magnitude) {
+            weightedSize += run.textStyle.fontSize.magnitude * len;
+          }
+        }
+        if (totalChars === 0) return;
+        const avgSize = weightedSize / totalChars;
+        const mostlyBold = boldChars / totalChars > 0.6;
+        const largerThanBody = avgSize > bodyFontSize * 1.2;
+        const allCaps = text === text.toUpperCase() && /[A-Z]/.test(text);
+
+        const reasons: string[] = [];
+        if (mostlyBold) reasons.push('mostly bold');
+        if (largerThanBody) reasons.push(`larger than body (${avgSize.toFixed(1)}pt vs ${bodyFontSize}pt)`);
+        if (allCaps) reasons.push('ALL CAPS');
+
+        if (reasons.length >= 2 || (reasons.length === 1 && largerThanBody)) {
+          // Suggest a level based on size and presence of cues
+          let suggested = 'HEADING_2';
+          if (avgSize >= bodyFontSize * 1.8 || (allCaps && largerThanBody)) suggested = 'HEADING_1';
+          if (avgSize >= bodyFontSize * 2.2) suggested = 'TITLE';
+
+          suspectedHeadings.push({
+            text,
+            startIndex,
+            endIndex,
+            currentNamedStyleType: ns || 'NORMAL_TEXT',
+            suggestedNamedStyleType: suggested,
+            reason: reasons.join('; '),
+          });
+        }
+      };
+
+      const walkBody = (elements: docs_v1.Schema$StructuralElement[]) => {
+        for (const element of elements) {
+          if (element.paragraph && element.startIndex !== undefined && element.startIndex !== null) {
+            detectSuspectedHeading(
+              element.paragraph,
+              element.startIndex,
+              element.endIndex ?? element.startIndex,
+            );
+          } else if (element.table && element.startIndex !== undefined && element.startIndex !== null) {
+            tablePatterns.push(summariseTable(element.table, element.startIndex));
+            // Recurse into cells (in case of nested tables, though rare)
+            for (const row of element.table.tableRows || []) {
+              for (const cell of row.tableCells || []) {
+                if (cell.content) walkBody(cell.content);
+              }
+            }
+          }
+        }
+      };
+
+      walkBody(doc.body?.content || []);
+
+      const profile = {
+        documentId: args.documentId,
+        title: doc.title || '',
+        extractedAt: new Date().toISOString(),
+        documentDefaults,
+        namedStyles,
+        dominantBodyStyle: styles.dominantStyle || null,
+        tablePatterns,
+        suspectedHeadings,
+      };
+
+      return successResponse(profile);
+    } catch (error) {
+      return errorResponse('extracting style profile', error);
     }
   }
 

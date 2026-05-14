@@ -156,6 +156,10 @@ export interface DeleteRangeRequest {
   endIndex: number;
 }
 
+export interface GetStyleProfileRequest {
+  documentId: string;
+}
+
 // ── Google Drive ───────────────────────────────────────────────────────────────
 
 export interface MoveFileRequest {
