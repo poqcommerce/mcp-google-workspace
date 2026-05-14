@@ -143,6 +143,19 @@ export interface CreateFromTemplateRequest {
   parentFolderId?: string;
 }
 
+export interface FindTextRequest {
+  documentId: string;
+  query: string;
+  matchCase?: boolean;
+  firstOnly?: boolean;
+}
+
+export interface DeleteRangeRequest {
+  documentId: string;
+  startIndex: number;
+  endIndex: number;
+}
+
 // ── Google Drive ───────────────────────────────────────────────────────────────
 
 export interface MoveFileRequest {

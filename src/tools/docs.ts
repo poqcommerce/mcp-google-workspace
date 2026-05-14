@@ -11,6 +11,8 @@ import type {
   UpdateTableRequest,
   SetDocumentDefaultsRequest,
   CreateFromTemplateRequest,
+  FindTextRequest,
+  DeleteRangeRequest,
   ToolDefinition,
   ToolResponse,
 } from '../types.js';
@@ -331,6 +333,41 @@ export function getDocsToolDefinitions(): ToolDefinition[] {
       },
     },
     {
+      name: 'gdocs_find_text',
+      description:
+        'Find one or more occurrences of a text string and return their indices. For each match, returns the matched range (startIndex, endIndex) AND the enclosing paragraph range (paragraphStartIndex, paragraphEndIndex) — use the paragraph range to apply paragraph styles like headings. Also indicates whether the match is inside a table cell. Essential for working with documents after structural edits have shifted indices.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          documentId: { type: 'string', description: 'The ID of the document' },
+          query: { type: 'string', description: 'Text to find (exact match)' },
+          matchCase: {
+            type: 'boolean',
+            description: 'Case-sensitive search (default: true)',
+          },
+          firstOnly: {
+            type: 'boolean',
+            description: 'Return only the first match (default: false — returns all)',
+          },
+        },
+        required: ['documentId', 'query'],
+      },
+    },
+    {
+      name: 'gdocs_delete_range',
+      description:
+        'Delete a precise range of content. Pair with gdocs_find_text to delete a specific paragraph (find the text, take paragraphStartIndex/paragraphEndIndex, delete that range). Safer than gdocs_replace_text with an empty replacement, which matches every occurrence including inside tables.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          documentId: { type: 'string', description: 'The ID of the document' },
+          startIndex: { type: 'number', description: 'Start of range to delete' },
+          endIndex: { type: 'number', description: 'End of range to delete (exclusive)' },
+        },
+        required: ['documentId', 'startIndex', 'endIndex'],
+      },
+    },
+    {
       name: 'gdocs_create_from_template',
       description:
         'Copy an existing Google Doc as a template and apply text replacements. Replacements is an object map: each key is a placeholder to find ' +
@@ -523,6 +560,10 @@ export class DocsHandler {
         return this.handleSetDocumentDefaults(this.validateSetDocumentDefaultsArgs(args));
       case 'gdocs_create_from_template':
         return this.handleCreateFromTemplate(this.validateCreateFromTemplateArgs(args));
+      case 'gdocs_find_text':
+        return this.handleFindText(this.validateFindTextArgs(args));
+      case 'gdocs_delete_range':
+        return this.handleDeleteRange(this.validateDeleteRangeArgs(args));
       default:
         return null;
     }
@@ -747,6 +788,36 @@ export class DocsHandler {
       replacements: args.replacements,
       parentFolderId: args.parentFolderId,
     };
+  }
+
+  private validateFindTextArgs(args: any): FindTextRequest {
+    if (!args || typeof args !== 'object') throw new Error('Invalid arguments: expected object');
+    if (!args.documentId || typeof args.documentId !== 'string') {
+      throw new Error('Invalid documentId: expected non-empty string');
+    }
+    if (!args.query || typeof args.query !== 'string') {
+      throw new Error('Invalid query: expected non-empty string');
+    }
+    return {
+      documentId: args.documentId,
+      query: args.query,
+      matchCase: args.matchCase !== false,
+      firstOnly: args.firstOnly === true,
+    };
+  }
+
+  private validateDeleteRangeArgs(args: any): DeleteRangeRequest {
+    if (!args || typeof args !== 'object') throw new Error('Invalid arguments: expected object');
+    if (!args.documentId || typeof args.documentId !== 'string') {
+      throw new Error('Invalid documentId: expected non-empty string');
+    }
+    if (typeof args.startIndex !== 'number' || args.startIndex < 1) {
+      throw new Error('Invalid startIndex: expected number >= 1');
+    }
+    if (typeof args.endIndex !== 'number' || args.endIndex <= args.startIndex) {
+      throw new Error('Invalid endIndex: expected number greater than startIndex');
+    }
+    return { documentId: args.documentId, startIndex: args.startIndex, endIndex: args.endIndex };
   }
 
   // ── Handlers ───────────────────────────────────────────────────────────────
@@ -1626,6 +1697,148 @@ export class DocsHandler {
       });
     } catch (error) {
       return errorResponse('creating document from template', error);
+    }
+  }
+
+  private async handleFindText(args: FindTextRequest): Promise<ToolResponse> {
+    try {
+      const doc = await this.docs.documents.get({ documentId: args.documentId });
+      const matchCase = args.matchCase !== false;
+      const needle = matchCase ? args.query : args.query.toLowerCase();
+
+      type Match = {
+        startIndex: number;
+        endIndex: number;
+        paragraphStartIndex: number;
+        paragraphEndIndex: number;
+        inTable: boolean;
+        tableContext?: { tableStartIndex: number; rowIndex: number; columnIndex: number };
+        sectionHeading?: string;
+        matchedText: string;
+      };
+
+      const matches: Match[] = [];
+      let currentHeading = '';
+      let done = false;
+
+      /** Search a paragraph's text runs for matches. */
+      const searchParagraph = (
+        para: docs_v1.Schema$Paragraph,
+        paraStart: number,
+        paraEnd: number,
+        tableContext?: { tableStartIndex: number; rowIndex: number; columnIndex: number },
+      ) => {
+        if (done) return;
+        // Concatenate runs while building an index map: paraText[i] → doc index
+        let paraText = '';
+        const paraIndices: number[] = [];
+        for (const elem of para.elements || []) {
+          const run = elem.textRun;
+          if (!run?.content || elem.startIndex === undefined || elem.startIndex === null) continue;
+          for (let i = 0; i < run.content.length; i++) {
+            paraIndices.push(elem.startIndex + i);
+          }
+          paraText += run.content;
+        }
+        if (paraText.length === 0) return;
+
+        const haystack = matchCase ? paraText : paraText.toLowerCase();
+        let pos = 0;
+        while ((pos = haystack.indexOf(needle, pos)) !== -1) {
+          const start = paraIndices[pos];
+          const end = paraIndices[pos + needle.length - 1] + 1;
+          matches.push({
+            startIndex: start,
+            endIndex: end,
+            paragraphStartIndex: paraStart,
+            paragraphEndIndex: paraEnd,
+            inTable: tableContext !== undefined,
+            tableContext,
+            sectionHeading: currentHeading || undefined,
+            matchedText: paraText.substring(pos, pos + needle.length),
+          });
+          if (args.firstOnly) {
+            done = true;
+            return;
+          }
+          pos += needle.length;
+        }
+      };
+
+      const walk = (elements: docs_v1.Schema$StructuralElement[]) => {
+        for (const element of elements) {
+          if (done) return;
+          if (element.paragraph?.elements) {
+            const para = element.paragraph;
+            const paraStart = element.startIndex ?? 0;
+            const paraEnd = element.endIndex ?? 0;
+            const isHeading = para.paragraphStyle?.namedStyleType?.startsWith('HEADING');
+            if (isHeading) {
+              currentHeading = (para.elements || [])
+                .map((e) => e.textRun?.content || '')
+                .join('')
+                .trim();
+            }
+            searchParagraph(para, paraStart, paraEnd);
+          } else if (element.table) {
+            const tableStart = element.startIndex ?? 0;
+            const rows = element.table.tableRows || [];
+            for (let r = 0; r < rows.length; r++) {
+              const cells = rows[r].tableCells || [];
+              for (let c = 0; c < cells.length; c++) {
+                const cell = cells[c];
+                for (const cellElement of cell.content || []) {
+                  if (done) return;
+                  if (cellElement.paragraph?.elements) {
+                    searchParagraph(
+                      cellElement.paragraph,
+                      cellElement.startIndex ?? 0,
+                      cellElement.endIndex ?? 0,
+                      { tableStartIndex: tableStart, rowIndex: r, columnIndex: c },
+                    );
+                  }
+                }
+              }
+            }
+          }
+        }
+      };
+
+      walk(doc.data.body?.content || []);
+
+      return successResponse({
+        success: true,
+        query: args.query,
+        matchCount: matches.length,
+        matches,
+      });
+    } catch (error) {
+      return errorResponse('finding text', error);
+    }
+  }
+
+  private async handleDeleteRange(args: DeleteRangeRequest): Promise<ToolResponse> {
+    try {
+      await this.docs.documents.batchUpdate({
+        documentId: args.documentId,
+        requestBody: {
+          requests: [
+            {
+              deleteContentRange: {
+                range: { startIndex: args.startIndex, endIndex: args.endIndex },
+              },
+            },
+          ],
+        },
+      });
+
+      return successResponse({
+        success: true,
+        deletedRange: `${args.startIndex}-${args.endIndex}`,
+        charactersDeleted: args.endIndex - args.startIndex,
+      });
+    } catch (error) {
+      return errorResponse('deleting range', error);
     }
   }
 }

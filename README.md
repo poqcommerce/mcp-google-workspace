@@ -1,8 +1,8 @@
 # Google Workspace MCP Server
 
-An MCP server that gives Claude (or any MCP-compatible AI) full read/write access to Google Sheets, Docs, Drive, and Slides. 65 tools, batch operations throughout, and a template workflow for branded presentations.
+An MCP server that gives Claude (or any MCP-compatible AI) full read/write access to Google Sheets, Docs, Drive, and Slides. 67 tools, batch operations throughout, and a template workflow for branded presentations.
 
-**Version:** 2.6.0 | **Last Updated:** 2026-05-14 | **Tools:** 65
+**Version:** 2.6.1 | **Last Updated:** 2026-05-14 | **Tools:** 67
 
 ---
 
@@ -162,23 +162,25 @@ Restart Claude, then try asking: "Search my Google Drive for recent documents." 
 | `gsheets_insert_delete_dimensions` | Insert or delete rows/columns |
 | `gsheets_sort_range` | Sort data by one or more columns |
 
-### Google Docs — 13 tools
+### Google Docs — 15 tools
 
 | Tool | Description |
 |------|-------------|
 | `gdocs_create_document` | Create a new document (optionally in a folder with initial content) |
 | `gdocs_create_from_template` | Copy a template doc and apply {{placeholder}} replacements in one batch |
 | `gdocs_get_document` | Read content (tables as markdown), tracked changes, detected styles, and table positions |
+| `gdocs_find_text` | Find text occurrences and return their indices + enclosing paragraph range — essential after structural edits shift positions |
 | `gdocs_insert_text` | Insert text at a specific index |
 | `gdocs_append_text` | Append text to the end |
 | `gdocs_replace_text` | Find and replace throughout the document |
+| `gdocs_delete_range` | Delete a precise range — safer than empty-string replace which spans the whole doc |
 | `gdocs_format_text` | Character formatting: bold, italic, underline, strikethrough, size, font family, colours, links |
 | `gdocs_format_paragraph` | Paragraph styling: named styles, alignment, line spacing, indents, space above/below |
 | `gdocs_set_heading` | Convert text to heading (H1–H6) — sets `namedStyleType` so it appears in the doc outline |
 | `gdocs_create_bullets` | Apply bulleted or numbered list style to a range |
 | `gdocs_insert_table` | Insert a table at an index, optionally populate cells with a 2D array |
 | `gdocs_update_table` | Style a table: column widths, header/body backgrounds, padding, borders, alignment |
-| `gdocs_set_document_defaults` | Set document-wide body font/size/colour and page margins |
+| `gdocs_set_document_defaults` | Set document-wide body font/size/colour and page margins (NORMAL_TEXT only — preserves heading sizes) |
 
 ### Google Drive — 20 tools
 
@@ -381,7 +383,7 @@ mcp-google-workspace/
 │   ├── auth.ts           # Standalone OAuth flow (npm run auth)
 │   └── tools/
 │       ├── sheets.ts     # 13 tools
-│       ├── docs.ts       # 13 tools
+│       ├── docs.ts       # 15 tools
 │       ├── drive.ts      # 20 tools
 │       ├── slides.ts     # 17 tools
 │       └── auth.ts       # 2 tools
@@ -426,6 +428,12 @@ npm start         # Start server directly
 ---
 
 ## Version History
+
+### v2.6.1 — 2026-05-14
+- `gdocs_find_text` — locate text occurrences and return their indices, plus the enclosing paragraph range. Essential for working with docs after structural edits have shifted positions ("apply HEADING_2 to 'Signatures'" becomes a two-call recipe). Also flags whether the match is inside a table cell.
+- `gdocs_delete_range` — delete a precise index range. Safer than `gdocs_replace_text` with an empty string, which matches every occurrence including inside tables (real-world footgun encountered during contract editing).
+- `gdocs_set_document_defaults` now applies textStyle only to NORMAL_TEXT paragraphs (including inside table cells), preserving heading sizes from named styles. Applying uniformly across the whole body had been wrecking heading hierarchy.
+- 67 total tools (was 65)
 
 ### v2.6.0 — 2026-05-14
 - **Major Docs expansion** — six new tools for contract creation and consistent document formatting:
