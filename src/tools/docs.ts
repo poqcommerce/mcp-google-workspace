@@ -4,6 +4,13 @@ import type {
   InsertTextRequest,
   ReplaceTextRequest,
   FormatTextRequest,
+  FormatParagraphRequest,
+  SetHeadingRequest,
+  CreateBulletsRequest,
+  InsertTableRequest,
+  UpdateTableRequest,
+  SetDocumentDefaultsRequest,
+  CreateFromTemplateRequest,
   ToolDefinition,
   ToolResponse,
 } from '../types.js';
@@ -31,7 +38,8 @@ export function getDocsToolDefinitions(): ToolDefinition[] {
     },
     {
       name: 'gdocs_get_document',
-      description: 'Get the content of a Google Document',
+      description:
+        'Get the content of a Google Document. Includes detected styles, suggestion summary, and table positions (tableStartIndex) needed for gdocs_update_table.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -80,7 +88,10 @@ export function getDocsToolDefinitions(): ToolDefinition[] {
     },
     {
       name: 'gdocs_format_text',
-      description: 'Apply formatting to text in a Google Document',
+      description:
+        'Apply character-level formatting to a text range. Supports bold, italic, underline, strikethrough, fontSize (pt), ' +
+        'fontFamily (e.g. "Red Hat Display", "Arial"), foregroundColor, backgroundColor, and link. ' +
+        'Colours use {red, green, blue} in 0-1 range. For paragraph-level styling (alignment, headings, spacing), use gdocs_format_paragraph.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -94,7 +105,32 @@ export function getDocsToolDefinitions(): ToolDefinition[] {
               bold: { type: 'boolean' },
               italic: { type: 'boolean' },
               underline: { type: 'boolean' },
-              fontSize: { type: 'number' },
+              strikethrough: { type: 'boolean' },
+              fontSize: { type: 'number', description: 'Font size in points' },
+              fontFamily: { type: 'string', description: 'Font family name (e.g. "Red Hat Display", "Arial")' },
+              foregroundColor: {
+                type: 'object',
+                description: '{ red, green, blue } values 0-1',
+                properties: {
+                  red: { type: 'number' },
+                  green: { type: 'number' },
+                  blue: { type: 'number' },
+                },
+              },
+              backgroundColor: {
+                type: 'object',
+                description: '{ red, green, blue } values 0-1',
+                properties: {
+                  red: { type: 'number' },
+                  green: { type: 'number' },
+                  blue: { type: 'number' },
+                },
+              },
+              link: {
+                type: 'object',
+                description: 'Hyperlink target',
+                properties: { url: { type: 'string' } },
+              },
             },
           },
         },
@@ -102,8 +138,57 @@ export function getDocsToolDefinitions(): ToolDefinition[] {
       },
     },
     {
+      name: 'gdocs_format_paragraph',
+      description:
+        'Apply paragraph-level styling to a range: namedStyleType (NORMAL_TEXT/TITLE/SUBTITLE/HEADING_1..6), alignment, ' +
+        'lineSpacing (e.g. 115 for 1.15x), spaceAbove/spaceBelow (pt), indents (pt). Setting namedStyleType applies the named ' +
+        'style and also makes the paragraph appear in the document outline.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          documentId: { type: 'string', description: 'The ID of the document' },
+          startIndex: { type: 'number', description: 'Start index of range' },
+          endIndex: { type: 'number', description: 'End index of range' },
+          style: {
+            type: 'object',
+            description: 'Paragraph styling options',
+            properties: {
+              namedStyleType: {
+                type: 'string',
+                description: 'Named style for this paragraph (controls outline + default appearance)',
+                enum: [
+                  'NORMAL_TEXT',
+                  'TITLE',
+                  'SUBTITLE',
+                  'HEADING_1',
+                  'HEADING_2',
+                  'HEADING_3',
+                  'HEADING_4',
+                  'HEADING_5',
+                  'HEADING_6',
+                ],
+              },
+              alignment: {
+                type: 'string',
+                description: 'Horizontal alignment',
+                enum: ['START', 'CENTER', 'END', 'JUSTIFIED'],
+              },
+              lineSpacing: { type: 'number', description: 'Line spacing as a percentage (115 = 1.15x)' },
+              spaceAbove: { type: 'number', description: 'Space before paragraph in points' },
+              spaceBelow: { type: 'number', description: 'Space after paragraph in points' },
+              indentFirstLine: { type: 'number', description: 'First-line indent in points' },
+              indentStart: { type: 'number', description: 'Left indent in points' },
+              indentEnd: { type: 'number', description: 'Right indent in points' },
+              keepWithNext: { type: 'boolean', description: 'Keep paragraph with the next one (avoid page break between)' },
+            },
+          },
+        },
+        required: ['documentId', 'startIndex', 'endIndex', 'style'],
+      },
+    },
+    {
       name: 'gdocs_set_heading',
-      description: 'Convert text to a heading in a Google Document',
+      description: 'Convert a text range to a heading (sets namedStyleType to HEADING_N). Same effect as gdocs_format_paragraph with namedStyleType, kept for convenience.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -118,6 +203,154 @@ export function getDocsToolDefinitions(): ToolDefinition[] {
           },
         },
         required: ['documentId', 'startIndex', 'endIndex', 'headingLevel'],
+      },
+    },
+    {
+      name: 'gdocs_create_bullets',
+      description:
+        'Apply a bulleted or numbered list to a paragraph range. Use preset to choose style: ' +
+        'BULLET_DISC_CIRCLE_SQUARE (default), BULLET_DIAMONDX_ARROW3D_SQUARE, BULLET_CHECKBOX, ' +
+        'NUMBERED_DECIMAL_ALPHA_ROMAN, NUMBERED_DECIMAL_NESTED, NUMBERED_UPPERALPHA_ALPHA_ROMAN, etc.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          documentId: { type: 'string', description: 'The ID of the document' },
+          startIndex: { type: 'number', description: 'Start index of range' },
+          endIndex: { type: 'number', description: 'End index of range' },
+          preset: {
+            type: 'string',
+            description: 'BulletGlyphPreset value (default: BULLET_DISC_CIRCLE_SQUARE)',
+          },
+        },
+        required: ['documentId', 'startIndex', 'endIndex'],
+      },
+    },
+    {
+      name: 'gdocs_insert_table',
+      description:
+        'Insert a table at the given index and optionally populate cells. cellContent is a 2D array (rows × columns) — missing rows/cells stay empty. ' +
+        'Returns the table\'s startIndex which you pass to gdocs_update_table to style it. ' +
+        'Tip: use gdocs_get_document afterwards to see exact table cell indices if you need to format individual cells.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          documentId: { type: 'string', description: 'The ID of the document' },
+          index: { type: 'number', description: 'Position to insert the table' },
+          rows: { type: 'number', description: 'Number of rows' },
+          columns: { type: 'number', description: 'Number of columns' },
+          cellContent: {
+            type: 'array',
+            description: 'Optional 2D array of cell text. Rows × columns. Cells beyond the array stay empty.',
+            items: {
+              type: 'array',
+              items: { type: 'string' },
+            },
+          },
+        },
+        required: ['documentId', 'index', 'rows', 'columns'],
+      },
+    },
+    {
+      name: 'gdocs_update_table',
+      description:
+        'Style a table: column widths (pt), header/body row background colours, cell padding (pt, applied to all cells), borders (NONE for invisible layout tables / ALL for thin grey lines), vertical content alignment. ' +
+        'tableStartIndex is the index of the table element — get it from gdocs_get_document.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          documentId: { type: 'string', description: 'The ID of the document' },
+          tableStartIndex: { type: 'number', description: 'startIndex of the table element (from gdocs_get_document)' },
+          rows: { type: 'number', description: 'Total rows in the table' },
+          columns: { type: 'number', description: 'Total columns in the table' },
+          columnWidths: {
+            type: 'array',
+            description: 'Column widths in points. Length must match columns count.',
+            items: { type: 'number' },
+          },
+          headerRowBackgroundColor: {
+            type: 'object',
+            description: 'Background colour for row 0 — { red, green, blue } 0-1',
+            properties: {
+              red: { type: 'number' },
+              green: { type: 'number' },
+              blue: { type: 'number' },
+            },
+          },
+          bodyRowBackgroundColor: {
+            type: 'object',
+            description: 'Background colour for non-header rows — { red, green, blue } 0-1',
+            properties: {
+              red: { type: 'number' },
+              green: { type: 'number' },
+              blue: { type: 'number' },
+            },
+          },
+          cellPadding: { type: 'number', description: 'Uniform cell padding in points (applied top/bottom/left/right)' },
+          borders: {
+            type: 'string',
+            description: 'NONE = invisible borders (good for layout tables), ALL = thin grey borders on every edge',
+            enum: ['NONE', 'ALL'],
+          },
+          contentAlignment: {
+            type: 'string',
+            description: 'Vertical alignment for all cells',
+            enum: ['TOP', 'MIDDLE', 'BOTTOM'],
+          },
+        },
+        required: ['documentId', 'tableStartIndex', 'rows', 'columns'],
+      },
+    },
+    {
+      name: 'gdocs_set_document_defaults',
+      description:
+        'Apply document-wide defaults: body font family/size/colour (applied to NORMAL_TEXT paragraphs only — heading/title sizes are left alone) and page margins (points). ' +
+        'Best called AFTER inserting body content — the Docs API has no global "default text style", so this applies the style to existing text. ' +
+        'Newly inserted text adjacent to styled text will then inherit it. Margins persist regardless of content order. ' +
+        'Apply per-range overrides (e.g. bolded labels) AFTER this call, since the defaults will overwrite any prior textStyle on NORMAL_TEXT.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          documentId: { type: 'string', description: 'The ID of the document' },
+          fontFamily: { type: 'string', description: 'Default body font family (e.g. "Red Hat Display", "Arial")' },
+          fontSize: { type: 'number', description: 'Default body font size in points' },
+          foregroundColor: {
+            type: 'object',
+            description: 'Default text colour — { red, green, blue } 0-1',
+            properties: {
+              red: { type: 'number' },
+              green: { type: 'number' },
+              blue: { type: 'number' },
+            },
+          },
+          marginTop: { type: 'number', description: 'Top margin in points (72pt = 1 inch)' },
+          marginBottom: { type: 'number', description: 'Bottom margin in points' },
+          marginLeft: { type: 'number', description: 'Left margin in points' },
+          marginRight: { type: 'number', description: 'Right margin in points' },
+        },
+        required: ['documentId'],
+      },
+    },
+    {
+      name: 'gdocs_create_from_template',
+      description:
+        'Copy an existing Google Doc as a template and apply text replacements. Replacements is an object map: each key is a placeholder to find ' +
+        '(e.g. "{{CLIENT_NAME}}"), each value is the replacement text. All replacements run in a single batchUpdate. Use parentFolderId to file the new doc.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          templateId: { type: 'string', description: 'The ID of the template document to copy' },
+          title: { type: 'string', description: 'Title for the new document' },
+          replacements: {
+            type: 'object',
+            description: 'Map of placeholder strings to replacement values. Example: { "{{CLIENT_NAME}}": "Acme Corp" }',
+            additionalProperties: { type: 'string' },
+          },
+          parentFolderId: {
+            type: 'string',
+            description: 'Optional folder ID to place the new document in',
+          },
+        },
+        required: ['templateId', 'title'],
       },
     },
   ];
@@ -276,14 +509,20 @@ export class DocsHandler {
         return this.handleReplaceText(this.validateReplaceTextArgs(args));
       case 'gdocs_format_text':
         return this.handleFormatText(this.validateFormatTextArgs(args));
-      case 'gdocs_set_heading': {
-        const formatArgs = this.validateFormatTextArgs(args);
-        const headingLevel = (args as any)?.headingLevel;
-        if (!headingLevel || headingLevel < 1 || headingLevel > 6) {
-          throw new Error('Invalid headingLevel: expected number between 1 and 6');
-        }
-        return this.handleSetHeading({ ...formatArgs, headingLevel });
-      }
+      case 'gdocs_format_paragraph':
+        return this.handleFormatParagraph(this.validateFormatParagraphArgs(args));
+      case 'gdocs_set_heading':
+        return this.handleSetHeading(this.validateSetHeadingArgs(args));
+      case 'gdocs_create_bullets':
+        return this.handleCreateBullets(this.validateCreateBulletsArgs(args));
+      case 'gdocs_insert_table':
+        return this.handleInsertTable(this.validateInsertTableArgs(args));
+      case 'gdocs_update_table':
+        return this.handleUpdateTable(this.validateUpdateTableArgs(args));
+      case 'gdocs_set_document_defaults':
+        return this.handleSetDocumentDefaults(this.validateSetDocumentDefaultsArgs(args));
+      case 'gdocs_create_from_template':
+        return this.handleCreateFromTemplate(this.validateCreateFromTemplateArgs(args));
       default:
         return null;
     }
@@ -355,7 +594,8 @@ export class DocsHandler {
     };
   }
 
-  private validateFormatTextArgs(args: any): FormatTextRequest {
+  /** Shared range validation: documentId, startIndex, endIndex. */
+  private validateRangeArgs(args: any): { documentId: string; startIndex: number; endIndex: number } {
     if (!args || typeof args !== 'object') {
       throw new Error('Invalid arguments: expected object');
     }
@@ -368,14 +608,144 @@ export class DocsHandler {
     if (typeof args.endIndex !== 'number' || args.endIndex <= args.startIndex) {
       throw new Error('Invalid endIndex: expected number greater than startIndex');
     }
+    return { documentId: args.documentId, startIndex: args.startIndex, endIndex: args.endIndex };
+  }
+
+  private validateFormatTextArgs(args: any): FormatTextRequest {
+    const range = this.validateRangeArgs(args);
     if (!args.format || typeof args.format !== 'object') {
       throw new Error('Invalid format: expected object');
     }
+    return { ...range, format: args.format };
+  }
+
+  private validateFormatParagraphArgs(args: any): FormatParagraphRequest {
+    const range = this.validateRangeArgs(args);
+    if (!args.style || typeof args.style !== 'object') {
+      throw new Error('Invalid style: expected object');
+    }
+    return { ...range, style: args.style };
+  }
+
+  private validateSetHeadingArgs(args: any): SetHeadingRequest {
+    const range = this.validateRangeArgs(args);
+    const headingLevel = args?.headingLevel;
+    if (typeof headingLevel !== 'number' || headingLevel < 1 || headingLevel > 6) {
+      throw new Error('Invalid headingLevel: expected number between 1 and 6');
+    }
+    return { ...range, headingLevel };
+  }
+
+  private validateCreateBulletsArgs(args: any): CreateBulletsRequest {
+    const range = this.validateRangeArgs(args);
+    const preset = args?.preset;
+    if (preset !== undefined && typeof preset !== 'string') {
+      throw new Error('Invalid preset: expected string');
+    }
+    return { ...range, preset };
+  }
+
+  private validateInsertTableArgs(args: any): InsertTableRequest {
+    if (!args || typeof args !== 'object') throw new Error('Invalid arguments: expected object');
+    if (!args.documentId || typeof args.documentId !== 'string') {
+      throw new Error('Invalid documentId: expected non-empty string');
+    }
+    if (typeof args.index !== 'number' || args.index < 0) {
+      throw new Error('Invalid index: expected non-negative number');
+    }
+    if (typeof args.rows !== 'number' || args.rows < 1) {
+      throw new Error('Invalid rows: expected positive number');
+    }
+    if (typeof args.columns !== 'number' || args.columns < 1) {
+      throw new Error('Invalid columns: expected positive number');
+    }
+    if (args.cellContent !== undefined) {
+      if (!Array.isArray(args.cellContent)) throw new Error('Invalid cellContent: expected 2D array');
+      for (const row of args.cellContent) {
+        if (!Array.isArray(row)) throw new Error('Invalid cellContent: expected 2D array of strings');
+      }
+    }
     return {
       documentId: args.documentId,
-      startIndex: args.startIndex,
-      endIndex: args.endIndex,
-      format: args.format,
+      index: args.index,
+      rows: args.rows,
+      columns: args.columns,
+      cellContent: args.cellContent,
+    };
+  }
+
+  private validateUpdateTableArgs(args: any): UpdateTableRequest {
+    if (!args || typeof args !== 'object') throw new Error('Invalid arguments: expected object');
+    if (!args.documentId || typeof args.documentId !== 'string') {
+      throw new Error('Invalid documentId: expected non-empty string');
+    }
+    if (typeof args.tableStartIndex !== 'number' || args.tableStartIndex < 0) {
+      throw new Error('Invalid tableStartIndex: expected non-negative number');
+    }
+    if (typeof args.rows !== 'number' || args.rows < 1) {
+      throw new Error('Invalid rows: expected positive number');
+    }
+    if (typeof args.columns !== 'number' || args.columns < 1) {
+      throw new Error('Invalid columns: expected positive number');
+    }
+    if (args.columnWidths !== undefined) {
+      if (!Array.isArray(args.columnWidths) || args.columnWidths.length !== args.columns) {
+        throw new Error(`Invalid columnWidths: expected array of length ${args.columns}`);
+      }
+    }
+    if (args.borders !== undefined && !['NONE', 'ALL'].includes(args.borders)) {
+      throw new Error('Invalid borders: expected NONE or ALL');
+    }
+    if (args.contentAlignment !== undefined && !['TOP', 'MIDDLE', 'BOTTOM'].includes(args.contentAlignment)) {
+      throw new Error('Invalid contentAlignment: expected TOP, MIDDLE or BOTTOM');
+    }
+    return {
+      documentId: args.documentId,
+      tableStartIndex: args.tableStartIndex,
+      rows: args.rows,
+      columns: args.columns,
+      columnWidths: args.columnWidths,
+      headerRowBackgroundColor: args.headerRowBackgroundColor,
+      bodyRowBackgroundColor: args.bodyRowBackgroundColor,
+      cellPadding: args.cellPadding,
+      borders: args.borders,
+      contentAlignment: args.contentAlignment,
+    };
+  }
+
+  private validateSetDocumentDefaultsArgs(args: any): SetDocumentDefaultsRequest {
+    if (!args || typeof args !== 'object') throw new Error('Invalid arguments: expected object');
+    if (!args.documentId || typeof args.documentId !== 'string') {
+      throw new Error('Invalid documentId: expected non-empty string');
+    }
+    return {
+      documentId: args.documentId,
+      fontFamily: args.fontFamily,
+      fontSize: args.fontSize,
+      foregroundColor: args.foregroundColor,
+      marginTop: args.marginTop,
+      marginBottom: args.marginBottom,
+      marginLeft: args.marginLeft,
+      marginRight: args.marginRight,
+    };
+  }
+
+  private validateCreateFromTemplateArgs(args: any): CreateFromTemplateRequest {
+    if (!args || typeof args !== 'object') throw new Error('Invalid arguments: expected object');
+    if (!args.templateId || typeof args.templateId !== 'string') {
+      throw new Error('Invalid templateId: expected non-empty string');
+    }
+    if (!args.title || typeof args.title !== 'string') {
+      throw new Error('Invalid title: expected non-empty string');
+    }
+    if (args.replacements !== undefined && (typeof args.replacements !== 'object' || Array.isArray(args.replacements))) {
+      throw new Error('Invalid replacements: expected object map of placeholder → value');
+    }
+    return {
+      templateId: args.templateId,
+      title: args.title,
+      replacements: args.replacements,
+      parentFolderId: args.parentFolderId,
     };
   }
 
@@ -449,6 +819,7 @@ export class DocsHandler {
         text?: string;
         context?: string;
       }[] = [];
+      const tablePositions: { startIndex: number; rows: number; columns: number; context?: string }[] = [];
 
       // Track the current section heading for suggestion context
       let currentHeading = '';
@@ -479,7 +850,7 @@ export class DocsHandler {
           }
 
           if (run.suggestedTextStyleChanges) {
-            for (const [id, change] of Object.entries(run.suggestedTextStyleChanges)) {
+            for (const [id] of Object.entries(run.suggestedTextStyleChanges)) {
               const existing = suggestions.find((s) => s.id === id && s.type === 'format');
               if (!existing) {
                 suggestions.push({ id, type: 'format', text: runText.replace(/\n$/, ''), context: currentHeading });
@@ -493,7 +864,7 @@ export class DocsHandler {
       };
 
       /** Render a table as pipe-delimited rows */
-      const processTable = (table: docs_v1.Schema$Table): string => {
+      const processTable = (table: docs_v1.Schema$Table, startIndex?: number): string => {
         const rows: string[][] = [];
         for (const row of table.tableRows || []) {
           const cells: string[] = [];
@@ -510,6 +881,15 @@ export class DocsHandler {
             cells.push(cellText.replace(/\n+$/, '').replace(/\n/g, ' '));
           }
           rows.push(cells);
+        }
+
+        if (startIndex !== undefined) {
+          tablePositions.push({
+            startIndex,
+            rows: table.rows || rows.length,
+            columns: table.columns || (rows[0]?.length ?? 0),
+            context: currentHeading || undefined,
+          });
         }
 
         if (rows.length === 0) return '';
@@ -536,7 +916,7 @@ export class DocsHandler {
               : undefined;
             text += processParagraph(element.paragraph.elements, headingLabel);
           } else if (element.table) {
-            text += processTable(element.table);
+            text += processTable(element.table, element.startIndex ?? undefined);
           }
         }
         return text;
@@ -556,6 +936,15 @@ export class DocsHandler {
       }
       if (styleInfo) {
         styleInfo = '\n\n--- Detected Styles (match these when adding content) ---' + styleInfo;
+      }
+
+      let tablesInfo = '';
+      if (tablePositions.length > 0) {
+        tablesInfo = `\n\n--- Tables (${tablePositions.length}) ---`;
+        tablePositions.forEach((t, i) => {
+          const section = t.context ? ` [${t.context}]` : '';
+          tablesInfo += `\n${i + 1}. tableStartIndex=${t.startIndex}, ${t.rows}×${t.columns}${section}`;
+        });
       }
 
       // Summarise suggestions if any
@@ -580,7 +969,7 @@ export class DocsHandler {
         suggestionsInfo = `\n\n--- Suggested Changes (${grouped.size} suggestions: ${insertionCount} insertions, ${deletionCount} deletions, ${formatCount} format changes) ---`;
 
         let i = 1;
-        for (const [id, group] of grouped) {
+        for (const [, group] of grouped) {
           if (group.deletions.length > 0 || group.insertions.length > 0) {
             const section = group.context ? `[${group.context}] ` : '';
             suggestionsInfo += `\n${i}. ${section}`;
@@ -599,7 +988,7 @@ export class DocsHandler {
         }
       }
 
-      return textResponse(`Document: ${doc.title}\n\nContent:\n${content}${suggestionsInfo}${styleInfo}`);
+      return textResponse(`Document: ${doc.title}\n\nContent:\n${content}${tablesInfo}${suggestionsInfo}${styleInfo}`);
     } catch (error) {
       return errorResponse('getting document', error);
     }
@@ -681,12 +1070,37 @@ export class DocsHandler {
 
   private async handleFormatText(args: FormatTextRequest): Promise<ToolResponse> {
     try {
-      const textStyle: any = {};
-      if (args.format.bold !== undefined) textStyle.bold = args.format.bold;
-      if (args.format.italic !== undefined) textStyle.italic = args.format.italic;
-      if (args.format.underline !== undefined) textStyle.underline = args.format.underline;
-      if (args.format.fontSize !== undefined) {
-        textStyle.fontSize = { magnitude: args.format.fontSize, unit: 'PT' };
+      const textStyle: docs_v1.Schema$TextStyle = {};
+      const fields: string[] = [];
+      const f = args.format;
+
+      if (f.bold !== undefined) { textStyle.bold = f.bold; fields.push('bold'); }
+      if (f.italic !== undefined) { textStyle.italic = f.italic; fields.push('italic'); }
+      if (f.underline !== undefined) { textStyle.underline = f.underline; fields.push('underline'); }
+      if (f.strikethrough !== undefined) { textStyle.strikethrough = f.strikethrough; fields.push('strikethrough'); }
+      if (f.fontSize !== undefined) {
+        textStyle.fontSize = { magnitude: f.fontSize, unit: 'PT' };
+        fields.push('fontSize');
+      }
+      if (f.fontFamily !== undefined) {
+        textStyle.weightedFontFamily = { fontFamily: f.fontFamily };
+        fields.push('weightedFontFamily');
+      }
+      if (f.foregroundColor !== undefined) {
+        textStyle.foregroundColor = { color: { rgbColor: f.foregroundColor } };
+        fields.push('foregroundColor');
+      }
+      if (f.backgroundColor !== undefined) {
+        textStyle.backgroundColor = { color: { rgbColor: f.backgroundColor } };
+        fields.push('backgroundColor');
+      }
+      if (f.link !== undefined) {
+        textStyle.link = { url: f.link.url };
+        fields.push('link');
+      }
+
+      if (fields.length === 0) {
+        throw new Error('No formatting properties provided in format object');
       }
 
       await this.docs.documents.batchUpdate({
@@ -697,7 +1111,7 @@ export class DocsHandler {
               updateTextStyle: {
                 range: { startIndex: args.startIndex, endIndex: args.endIndex },
                 textStyle,
-                fields: Object.keys(textStyle).join(','),
+                fields: fields.join(','),
               },
             },
           ],
@@ -714,11 +1128,69 @@ export class DocsHandler {
     }
   }
 
-  private async handleSetHeading(
-    args: FormatTextRequest & { headingLevel: number },
-  ): Promise<ToolResponse> {
+  private async handleFormatParagraph(args: FormatParagraphRequest): Promise<ToolResponse> {
     try {
-      const namedStyleType = `HEADING_${args.headingLevel}` as any;
+      const paragraphStyle: docs_v1.Schema$ParagraphStyle = {};
+      const fields: string[] = [];
+      const s = args.style;
+
+      if (s.namedStyleType !== undefined) { paragraphStyle.namedStyleType = s.namedStyleType; fields.push('namedStyleType'); }
+      if (s.alignment !== undefined) { paragraphStyle.alignment = s.alignment; fields.push('alignment'); }
+      if (s.lineSpacing !== undefined) { paragraphStyle.lineSpacing = s.lineSpacing; fields.push('lineSpacing'); }
+      if (s.spaceAbove !== undefined) {
+        paragraphStyle.spaceAbove = { magnitude: s.spaceAbove, unit: 'PT' };
+        fields.push('spaceAbove');
+      }
+      if (s.spaceBelow !== undefined) {
+        paragraphStyle.spaceBelow = { magnitude: s.spaceBelow, unit: 'PT' };
+        fields.push('spaceBelow');
+      }
+      if (s.indentFirstLine !== undefined) {
+        paragraphStyle.indentFirstLine = { magnitude: s.indentFirstLine, unit: 'PT' };
+        fields.push('indentFirstLine');
+      }
+      if (s.indentStart !== undefined) {
+        paragraphStyle.indentStart = { magnitude: s.indentStart, unit: 'PT' };
+        fields.push('indentStart');
+      }
+      if (s.indentEnd !== undefined) {
+        paragraphStyle.indentEnd = { magnitude: s.indentEnd, unit: 'PT' };
+        fields.push('indentEnd');
+      }
+      if (s.keepWithNext !== undefined) { paragraphStyle.keepWithNext = s.keepWithNext; fields.push('keepWithNext'); }
+
+      if (fields.length === 0) {
+        throw new Error('No style properties provided in style object');
+      }
+
+      await this.docs.documents.batchUpdate({
+        documentId: args.documentId,
+        requestBody: {
+          requests: [
+            {
+              updateParagraphStyle: {
+                range: { startIndex: args.startIndex, endIndex: args.endIndex },
+                paragraphStyle,
+                fields: fields.join(','),
+              },
+            },
+          ],
+        },
+      });
+
+      return successResponse({
+        success: true,
+        formattedRange: `${args.startIndex}-${args.endIndex}`,
+        appliedStyle: args.style,
+      });
+    } catch (error) {
+      return errorResponse('formatting paragraph', error);
+    }
+  }
+
+  private async handleSetHeading(args: SetHeadingRequest): Promise<ToolResponse> {
+    try {
+      const namedStyleType = `HEADING_${args.headingLevel}`;
 
       await this.docs.documents.batchUpdate({
         documentId: args.documentId,
@@ -742,6 +1214,418 @@ export class DocsHandler {
       });
     } catch (error) {
       return errorResponse('setting heading', error);
+    }
+  }
+
+  private async handleCreateBullets(args: CreateBulletsRequest): Promise<ToolResponse> {
+    try {
+      const preset = args.preset || 'BULLET_DISC_CIRCLE_SQUARE';
+
+      await this.docs.documents.batchUpdate({
+        documentId: args.documentId,
+        requestBody: {
+          requests: [
+            {
+              createParagraphBullets: {
+                range: { startIndex: args.startIndex, endIndex: args.endIndex },
+                bulletPreset: preset,
+              },
+            },
+          ],
+        },
+      });
+
+      return successResponse({
+        success: true,
+        range: `${args.startIndex}-${args.endIndex}`,
+        preset,
+      });
+    } catch (error) {
+      return errorResponse('creating bullets', error);
+    }
+  }
+
+  private async handleInsertTable(args: InsertTableRequest): Promise<ToolResponse> {
+    try {
+      // Step 1: insert the table
+      await this.docs.documents.batchUpdate({
+        documentId: args.documentId,
+        requestBody: {
+          requests: [
+            {
+              insertTable: {
+                location: { index: args.index },
+                rows: args.rows,
+                columns: args.columns,
+              },
+            },
+          ],
+        },
+      });
+
+      // Step 2: locate the table to get its true startIndex (Docs API may
+      // place it 1 position later than the requested index if a newline was inserted first).
+      const doc = await this.docs.documents.get({ documentId: args.documentId });
+      const tables: { startIndex: number; table: docs_v1.Schema$Table }[] = [];
+      for (const element of doc.data.body?.content || []) {
+        if (element.table && element.startIndex !== undefined && element.startIndex !== null) {
+          tables.push({ startIndex: element.startIndex, table: element.table });
+        }
+      }
+
+      // Pick the table closest to (and at or after) the requested index — the one we just inserted.
+      const inserted = tables
+        .filter((t) => t.startIndex >= args.index)
+        .sort((a, b) => a.startIndex - b.startIndex)[0];
+
+      if (!inserted) {
+        throw new Error('Could not locate the inserted table');
+      }
+
+      // Step 3: populate cells if requested.
+      if (args.cellContent && args.cellContent.length > 0) {
+        // Walk cells in reverse so earlier insertText calls don't shift later cell indices.
+        const inserts: docs_v1.Schema$Request[] = [];
+        const rows = inserted.table.tableRows || [];
+        for (let r = rows.length - 1; r >= 0; r--) {
+          const cells = rows[r].tableCells || [];
+          for (let c = cells.length - 1; c >= 0; c--) {
+            const cellText = args.cellContent[r]?.[c];
+            if (!cellText) continue;
+            // Insert at the first paragraph's startIndex — this places text before the cell's
+            // trailing newline, i.e. inside the cell. Adding +1 would land at the cell's endIndex
+            // (outside the cell).
+            const firstParagraph = cells[c].content?.[0];
+            const cellTextStart = firstParagraph?.startIndex;
+            if (cellTextStart === undefined || cellTextStart === null) continue;
+            inserts.push({
+              insertText: {
+                location: { index: cellTextStart },
+                text: normaliseText(cellText),
+              },
+            });
+          }
+        }
+
+        if (inserts.length > 0) {
+          await this.docs.documents.batchUpdate({
+            documentId: args.documentId,
+            requestBody: { requests: inserts },
+          });
+        }
+      }
+
+      return successResponse({
+        success: true,
+        tableStartIndex: inserted.startIndex,
+        rows: args.rows,
+        columns: args.columns,
+        populatedCells: args.cellContent
+          ? args.cellContent.reduce((n, row) => n + row.filter((c) => c).length, 0)
+          : 0,
+      });
+    } catch (error) {
+      return errorResponse('inserting table', error);
+    }
+  }
+
+  private async handleUpdateTable(args: UpdateTableRequest): Promise<ToolResponse> {
+    try {
+      const requests: docs_v1.Schema$Request[] = [];
+      const tableStartLocation = { index: args.tableStartIndex };
+
+      // Column widths
+      if (args.columnWidths && args.columnWidths.length > 0) {
+        for (let i = 0; i < args.columnWidths.length; i++) {
+          requests.push({
+            updateTableColumnProperties: {
+              tableStartLocation,
+              columnIndices: [i],
+              tableColumnProperties: {
+                widthType: 'FIXED_WIDTH',
+                width: { magnitude: args.columnWidths[i], unit: 'PT' },
+              },
+              fields: 'widthType,width',
+            },
+          });
+        }
+      }
+
+      // Cell-level styling (background, padding, borders, alignment) is applied per cell range.
+      const cellStyle: docs_v1.Schema$TableCellStyle = {};
+      const cellFields: string[] = [];
+
+      if (args.cellPadding !== undefined) {
+        cellStyle.paddingTop = { magnitude: args.cellPadding, unit: 'PT' };
+        cellStyle.paddingBottom = { magnitude: args.cellPadding, unit: 'PT' };
+        cellStyle.paddingLeft = { magnitude: args.cellPadding, unit: 'PT' };
+        cellStyle.paddingRight = { magnitude: args.cellPadding, unit: 'PT' };
+        cellFields.push('paddingTop', 'paddingBottom', 'paddingLeft', 'paddingRight');
+      }
+
+      if (args.contentAlignment !== undefined) {
+        cellStyle.contentAlignment = args.contentAlignment;
+        cellFields.push('contentAlignment');
+      }
+
+      if (args.borders === 'NONE') {
+        const noBorder = { color: { color: {} }, width: { magnitude: 0, unit: 'PT' }, dashStyle: 'SOLID' };
+        cellStyle.borderTop = noBorder;
+        cellStyle.borderBottom = noBorder;
+        cellStyle.borderLeft = noBorder;
+        cellStyle.borderRight = noBorder;
+        cellFields.push('borderTop', 'borderBottom', 'borderLeft', 'borderRight');
+      } else if (args.borders === 'ALL') {
+        const grey = {
+          color: { color: { rgbColor: { red: 0.8, green: 0.8, blue: 0.8 } } },
+          width: { magnitude: 0.75, unit: 'PT' },
+          dashStyle: 'SOLID',
+        };
+        cellStyle.borderTop = grey;
+        cellStyle.borderBottom = grey;
+        cellStyle.borderLeft = grey;
+        cellStyle.borderRight = grey;
+        cellFields.push('borderTop', 'borderBottom', 'borderLeft', 'borderRight');
+      }
+
+      if (cellFields.length > 0) {
+        // Apply to all cells via tableRange covering the whole table.
+        requests.push({
+          updateTableCellStyle: {
+            tableRange: {
+              tableCellLocation: {
+                tableStartLocation,
+                rowIndex: 0,
+                columnIndex: 0,
+              },
+              rowSpan: args.rows,
+              columnSpan: args.columns,
+            },
+            tableCellStyle: cellStyle,
+            fields: cellFields.join(','),
+          },
+        });
+      }
+
+      // Header row background (applied after general cell styling so it wins for row 0).
+      if (args.headerRowBackgroundColor) {
+        requests.push({
+          updateTableCellStyle: {
+            tableRange: {
+              tableCellLocation: {
+                tableStartLocation,
+                rowIndex: 0,
+                columnIndex: 0,
+              },
+              rowSpan: 1,
+              columnSpan: args.columns,
+            },
+            tableCellStyle: {
+              backgroundColor: { color: { rgbColor: args.headerRowBackgroundColor } },
+            },
+            fields: 'backgroundColor',
+          },
+        });
+      }
+
+      // Body row background (rows 1..N-1).
+      if (args.bodyRowBackgroundColor && args.rows > 1) {
+        requests.push({
+          updateTableCellStyle: {
+            tableRange: {
+              tableCellLocation: {
+                tableStartLocation,
+                rowIndex: 1,
+                columnIndex: 0,
+              },
+              rowSpan: args.rows - 1,
+              columnSpan: args.columns,
+            },
+            tableCellStyle: {
+              backgroundColor: { color: { rgbColor: args.bodyRowBackgroundColor } },
+            },
+            fields: 'backgroundColor',
+          },
+        });
+      }
+
+      if (requests.length === 0) {
+        throw new Error('No table updates provided — pass at least one of columnWidths, headerRowBackgroundColor, bodyRowBackgroundColor, cellPadding, borders, contentAlignment');
+      }
+
+      await this.docs.documents.batchUpdate({
+        documentId: args.documentId,
+        requestBody: { requests },
+      });
+
+      return successResponse({
+        success: true,
+        tableStartIndex: args.tableStartIndex,
+        appliedOperations: requests.length,
+      });
+    } catch (error) {
+      return errorResponse('updating table', error);
+    }
+  }
+
+  private async handleSetDocumentDefaults(args: SetDocumentDefaultsRequest): Promise<ToolResponse> {
+    try {
+      const requests: docs_v1.Schema$Request[] = [];
+
+      // Page margins via updateDocumentStyle
+      const documentStyle: docs_v1.Schema$DocumentStyle = {};
+      const docFields: string[] = [];
+      if (args.marginTop !== undefined) {
+        documentStyle.marginTop = { magnitude: args.marginTop, unit: 'PT' };
+        docFields.push('marginTop');
+      }
+      if (args.marginBottom !== undefined) {
+        documentStyle.marginBottom = { magnitude: args.marginBottom, unit: 'PT' };
+        docFields.push('marginBottom');
+      }
+      if (args.marginLeft !== undefined) {
+        documentStyle.marginLeft = { magnitude: args.marginLeft, unit: 'PT' };
+        docFields.push('marginLeft');
+      }
+      if (args.marginRight !== undefined) {
+        documentStyle.marginRight = { magnitude: args.marginRight, unit: 'PT' };
+        docFields.push('marginRight');
+      }
+      if (docFields.length > 0) {
+        requests.push({
+          updateDocumentStyle: {
+            documentStyle,
+            fields: docFields.join(','),
+          },
+        });
+      }
+
+      // Default body text style — apply to the whole body range
+      const textStyle: docs_v1.Schema$TextStyle = {};
+      const textFields: string[] = [];
+      if (args.fontFamily !== undefined) {
+        textStyle.weightedFontFamily = { fontFamily: args.fontFamily };
+        textFields.push('weightedFontFamily');
+      }
+      if (args.fontSize !== undefined) {
+        textStyle.fontSize = { magnitude: args.fontSize, unit: 'PT' };
+        textFields.push('fontSize');
+      }
+      if (args.foregroundColor !== undefined) {
+        textStyle.foregroundColor = { color: { rgbColor: args.foregroundColor } };
+        textFields.push('foregroundColor');
+      }
+
+      if (textFields.length > 0) {
+        // Apply textStyle only to NORMAL_TEXT paragraphs (including inside table cells)
+        // so we don't trample heading/title font sizes from their named styles.
+        const doc = await this.docs.documents.get({ documentId: args.documentId });
+
+        const collectNormalTextRanges = (
+          elements: docs_v1.Schema$StructuralElement[],
+          out: { startIndex: number; endIndex: number }[],
+        ) => {
+          for (const element of elements) {
+            if (element.paragraph) {
+              const ns = element.paragraph.paragraphStyle?.namedStyleType || 'NORMAL_TEXT';
+              if (
+                ns === 'NORMAL_TEXT' &&
+                element.startIndex !== undefined &&
+                element.startIndex !== null &&
+                element.endIndex !== undefined &&
+                element.endIndex !== null
+              ) {
+                out.push({ startIndex: element.startIndex, endIndex: element.endIndex });
+              }
+            } else if (element.table) {
+              for (const row of element.table.tableRows || []) {
+                for (const cell of row.tableCells || []) {
+                  if (cell.content) collectNormalTextRanges(cell.content, out);
+                }
+              }
+            }
+          }
+        };
+
+        const ranges: { startIndex: number; endIndex: number }[] = [];
+        collectNormalTextRanges(doc.data.body?.content || [], ranges);
+
+        for (const r of ranges) {
+          requests.push({
+            updateTextStyle: {
+              range: r,
+              textStyle,
+              fields: textFields.join(','),
+            },
+          });
+        }
+      }
+
+      if (requests.length === 0) {
+        throw new Error('No defaults provided — pass at least one of fontFamily, fontSize, foregroundColor, margins');
+      }
+
+      await this.docs.documents.batchUpdate({
+        documentId: args.documentId,
+        requestBody: { requests },
+      });
+
+      return successResponse({
+        success: true,
+        appliedOperations: requests.length,
+      });
+    } catch (error) {
+      return errorResponse('setting document defaults', error);
+    }
+  }
+
+  private async handleCreateFromTemplate(args: CreateFromTemplateRequest): Promise<ToolResponse> {
+    try {
+      // Step 1: copy the template via Drive API
+      const copyBody: drive_v3.Schema$File = { name: args.title };
+      if (args.parentFolderId) copyBody.parents = [args.parentFolderId];
+
+      const copyResponse = await this.drive.files.copy({
+        fileId: args.templateId,
+        requestBody: copyBody,
+        fields: 'id,name,parents',
+      });
+
+      const newDocId = copyResponse.data.id;
+      if (!newDocId) throw new Error('Drive copy did not return a file ID');
+
+      // Step 2: apply replacements (if any) in a single batchUpdate
+      let replacementsApplied = 0;
+      if (args.replacements && Object.keys(args.replacements).length > 0) {
+        const requests: docs_v1.Schema$Request[] = Object.entries(args.replacements).map(
+          ([find, replace]) => ({
+            replaceAllText: {
+              containsText: { text: find, matchCase: true },
+              replaceText: normaliseText(replace),
+            },
+          }),
+        );
+
+        const response = await this.docs.documents.batchUpdate({
+          documentId: newDocId,
+          requestBody: { requests },
+        });
+
+        for (const reply of response.data.replies || []) {
+          replacementsApplied += reply.replaceAllText?.occurrencesChanged || 0;
+        }
+      }
+
+      return successResponse({
+        success: true,
+        documentId: newDocId,
+        url: `https://docs.google.com/document/d/${newDocId}/edit`,
+        title: args.title,
+        parentFolderId: args.parentFolderId || 'root',
+        replacementsApplied,
+      });
+    } catch (error) {
+      return errorResponse('creating document from template', error);
     }
   }
 }

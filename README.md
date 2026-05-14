@@ -1,8 +1,8 @@
 # Google Workspace MCP Server
 
-An MCP server that gives Claude (or any MCP-compatible AI) full read/write access to Google Sheets, Docs, Drive, and Slides. 59 tools, batch operations throughout, and a template workflow for branded presentations.
+An MCP server that gives Claude (or any MCP-compatible AI) full read/write access to Google Sheets, Docs, Drive, and Slides. 65 tools, batch operations throughout, and a template workflow for branded presentations.
 
-**Version:** 2.5.0 | **Last Updated:** 2026-04-17 | **Tools:** 59
+**Version:** 2.6.0 | **Last Updated:** 2026-05-14 | **Tools:** 65
 
 ---
 
@@ -162,17 +162,23 @@ Restart Claude, then try asking: "Search my Google Drive for recent documents." 
 | `gsheets_insert_delete_dimensions` | Insert or delete rows/columns |
 | `gsheets_sort_range` | Sort data by one or more columns |
 
-### Google Docs — 7 tools
+### Google Docs — 13 tools
 
 | Tool | Description |
 |------|-------------|
 | `gdocs_create_document` | Create a new document (optionally in a folder with initial content) |
-| `gdocs_get_document` | Read document content including tables (rendered as markdown) with tracked changes detected and section context |
+| `gdocs_create_from_template` | Copy a template doc and apply {{placeholder}} replacements in one batch |
+| `gdocs_get_document` | Read content (tables as markdown), tracked changes, detected styles, and table positions |
 | `gdocs_insert_text` | Insert text at a specific index |
 | `gdocs_append_text` | Append text to the end |
 | `gdocs_replace_text` | Find and replace throughout the document |
-| `gdocs_format_text` | Apply bold, italic, underline, font size |
-| `gdocs_set_heading` | Convert text to heading (H1–H6) |
+| `gdocs_format_text` | Character formatting: bold, italic, underline, strikethrough, size, font family, colours, links |
+| `gdocs_format_paragraph` | Paragraph styling: named styles, alignment, line spacing, indents, space above/below |
+| `gdocs_set_heading` | Convert text to heading (H1–H6) — sets `namedStyleType` so it appears in the doc outline |
+| `gdocs_create_bullets` | Apply bulleted or numbered list style to a range |
+| `gdocs_insert_table` | Insert a table at an index, optionally populate cells with a 2D array |
+| `gdocs_update_table` | Style a table: column widths, header/body backgrounds, padding, borders, alignment |
+| `gdocs_set_document_defaults` | Set document-wide body font/size/colour and page margins |
 
 ### Google Drive — 20 tools
 
@@ -357,9 +363,10 @@ A good style guide for MCP tools covers:
 - **Naming conventions** — file/folder naming patterns
 - **Workflow preferences** — e.g. "always create documents in the Projects folder"
 
-Keep it concise. Claude reads the entire file at session start, so shorter guides are more likely to be followed consistently. Two ready-to-adapt examples are included:
+Keep it concise. Claude reads the entire file at session start, so shorter guides are more likely to be followed consistently. Three ready-to-adapt examples are included:
 - [`docs/example-style-guide.md`](docs/example-style-guide.md) — Slides table formatting
 - [`docs/example-sheets-style-guide.md`](docs/example-sheets-style-guide.md) — Google Sheets styling (headers, column widths, section separators)
+- [`docs/example-contract-style-guide.md`](docs/example-contract-style-guide.md) — Google Docs contracts and change orders (heading hierarchy, body font, field-list tables, signature blocks)
 
 ---
 
@@ -374,7 +381,7 @@ mcp-google-workspace/
 │   ├── auth.ts           # Standalone OAuth flow (npm run auth)
 │   └── tools/
 │       ├── sheets.ts     # 13 tools
-│       ├── docs.ts       # 7 tools
+│       ├── docs.ts       # 13 tools
 │       ├── drive.ts      # 20 tools
 │       ├── slides.ts     # 17 tools
 │       └── auth.ts       # 2 tools
@@ -419,6 +426,20 @@ npm start         # Start server directly
 ---
 
 ## Version History
+
+### v2.6.0 — 2026-05-14
+- **Major Docs expansion** — six new tools for contract creation and consistent document formatting:
+  - `gdocs_format_paragraph` — paragraph-level styling (named styles, alignment, line spacing, indents, space above/below)
+  - `gdocs_insert_table` — insert a table at an index, optionally populate cells from a 2D array
+  - `gdocs_update_table` — column widths, header/body row backgrounds, padding, borders (NONE for layout tables / ALL for data grids), content alignment
+  - `gdocs_set_document_defaults` — document-wide body font/size/colour and page margins
+  - `gdocs_create_from_template` — copy a template doc and apply `{{placeholder}}` replacements in one batch
+  - `gdocs_create_bullets` — bulleted or numbered list style
+- `gdocs_format_text` expanded — now supports `fontFamily`, `strikethrough`, `foregroundColor`, `backgroundColor`, and `link` (was bold/italic/underline/fontSize only)
+- `gdocs_set_heading` bug fixed — validator no longer requires an unused `format` field
+- `gdocs_get_document` now surfaces table positions (`tableStartIndex`) so subsequent `gdocs_update_table` calls don't need a second round-trip
+- Added [`docs/example-contract-style-guide.md`](docs/example-contract-style-guide.md) — ready-to-adapt style guide for contracts
+- 65 total tools (was 59)
 
 ### v2.5.0 — 2026-04-17
 - `gsheets_format_dimensions` — new tool for column widths, row heights, auto-resize, and merge cells. Fills the gap that required manual formatting after Claude-created sheets

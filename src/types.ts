@@ -55,8 +55,92 @@ export interface FormatTextRequest {
     bold?: boolean;
     italic?: boolean;
     underline?: boolean;
+    strikethrough?: boolean;
     fontSize?: number;
+    fontFamily?: string;
+    foregroundColor?: { red: number; green: number; blue: number };
+    backgroundColor?: { red: number; green: number; blue: number };
+    link?: { url: string };
   };
+}
+
+export interface FormatParagraphRequest {
+  documentId: string;
+  startIndex: number;
+  endIndex: number;
+  style: {
+    namedStyleType?:
+      | 'NORMAL_TEXT'
+      | 'TITLE'
+      | 'SUBTITLE'
+      | 'HEADING_1'
+      | 'HEADING_2'
+      | 'HEADING_3'
+      | 'HEADING_4'
+      | 'HEADING_5'
+      | 'HEADING_6';
+    alignment?: 'START' | 'CENTER' | 'END' | 'JUSTIFIED';
+    lineSpacing?: number; // e.g. 115 = 1.15x
+    spaceAbove?: number; // points
+    spaceBelow?: number; // points
+    indentFirstLine?: number; // points
+    indentStart?: number; // points
+    indentEnd?: number; // points
+    keepWithNext?: boolean;
+  };
+}
+
+export interface SetHeadingRequest {
+  documentId: string;
+  startIndex: number;
+  endIndex: number;
+  headingLevel: number;
+}
+
+export interface CreateBulletsRequest {
+  documentId: string;
+  startIndex: number;
+  endIndex: number;
+  preset?: string; // e.g. BULLET_DISC_CIRCLE_SQUARE, NUMBERED_DECIMAL_ALPHA_ROMAN
+}
+
+export interface InsertTableRequest {
+  documentId: string;
+  index: number;
+  rows: number;
+  columns: number;
+  cellContent?: string[][];
+}
+
+export interface UpdateTableRequest {
+  documentId: string;
+  tableStartIndex: number;
+  rows: number;
+  columns: number;
+  columnWidths?: number[];
+  headerRowBackgroundColor?: { red: number; green: number; blue: number };
+  bodyRowBackgroundColor?: { red: number; green: number; blue: number };
+  cellPadding?: number;
+  borders?: 'NONE' | 'ALL';
+  contentAlignment?: 'TOP' | 'MIDDLE' | 'BOTTOM';
+}
+
+export interface SetDocumentDefaultsRequest {
+  documentId: string;
+  fontFamily?: string;
+  fontSize?: number;
+  foregroundColor?: { red: number; green: number; blue: number };
+  marginTop?: number;
+  marginBottom?: number;
+  marginLeft?: number;
+  marginRight?: number;
+}
+
+export interface CreateFromTemplateRequest {
+  templateId: string;
+  title: string;
+  replacements?: Record<string, string>;
+  parentFolderId?: string;
 }
 
 // ── Google Drive ───────────────────────────────────────────────────────────────
