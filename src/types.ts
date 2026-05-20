@@ -169,6 +169,37 @@ export interface FillTableCellRequest {
   mode?: 'replace' | 'append';
 }
 
+export interface InsertTableRowRequest {
+  documentId: string;
+  tableStartIndex: number;
+  rowIndex: number;
+  insertBelow?: boolean;
+}
+
+export interface DeleteTableRowRequest {
+  documentId: string;
+  tableStartIndex: number;
+  rowIndex: number;
+}
+
+export interface InsertTableColumnRequest {
+  documentId: string;
+  tableStartIndex: number;
+  columnIndex: number;
+  insertRight?: boolean;
+}
+
+export interface DeleteTableColumnRequest {
+  documentId: string;
+  tableStartIndex: number;
+  columnIndex: number;
+}
+
+export interface DeleteTableRequest {
+  documentId: string;
+  tableStartIndex: number;
+}
+
 // ── Google Drive ───────────────────────────────────────────────────────────────
 
 export interface MoveFileRequest {

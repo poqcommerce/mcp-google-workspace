@@ -1,8 +1,8 @@
 # Google Workspace MCP Server
 
-An MCP server that gives Claude (or any MCP-compatible AI) full read/write access to Google Sheets, Docs, Drive, and Slides. 69 tools, batch operations throughout, and a template workflow for branded presentations.
+An MCP server that gives Claude (or any MCP-compatible AI) full read/write access to Google Sheets, Docs, Drive, and Slides. 74 tools, batch operations throughout, and a template workflow for branded presentations.
 
-**Version:** 2.7.0 | **Last Updated:** 2026-05-14 | **Tools:** 69
+**Version:** 2.8.0 | **Last Updated:** 2026-05-14 | **Tools:** 74
 
 ---
 
@@ -162,7 +162,7 @@ Restart Claude, then try asking: "Search my Google Drive for recent documents." 
 | `gsheets_insert_delete_dimensions` | Insert or delete rows/columns |
 | `gsheets_sort_range` | Sort data by one or more columns |
 
-### Google Docs — 17 tools
+### Google Docs — 22 tools
 
 | Tool | Description |
 |------|-------------|
@@ -182,6 +182,11 @@ Restart Claude, then try asking: "Search my Google Drive for recent documents." 
 | `gdocs_insert_table` | Insert a table at an index, optionally populate cells with a 2D array |
 | `gdocs_update_table` | Style a table: column widths, header/body backgrounds, padding, borders, alignment |
 | `gdocs_fill_table_cell` | Insert text into a cell by (rowIndex, columnIndex) — replaces or appends, no index counting needed |
+| `gdocs_insert_table_row` | Add a row above or below an existing row in a table |
+| `gdocs_delete_table_row` | Remove a row from a table by its 0-based index |
+| `gdocs_insert_table_column` | Add a column left or right of an existing column in a table |
+| `gdocs_delete_table_column` | Remove a column from a table by its 0-based index |
+| `gdocs_delete_table` | Remove an entire table from the document in one call |
 | `gdocs_set_document_defaults` | Set document-wide body font/size/colour and page margins (NORMAL_TEXT only — preserves heading sizes) |
 
 ### Google Drive — 20 tools
@@ -385,7 +390,7 @@ mcp-google-workspace/
 │   ├── auth.ts           # Standalone OAuth flow (npm run auth)
 │   └── tools/
 │       ├── sheets.ts     # 13 tools
-│       ├── docs.ts       # 17 tools
+│       ├── docs.ts       # 22 tools
 │       ├── drive.ts      # 20 tools
 │       ├── slides.ts     # 17 tools
 │       └── auth.ts       # 2 tools
@@ -430,6 +435,17 @@ npm start         # Start server directly
 ---
 
 ## Version History
+
+### v2.8.0 — 2026-05-14
+- **Full table CRUD primitives.** Five new tools that wrap the Google Docs API's row/column/table operations:
+  - `gdocs_insert_table_row(tableStartIndex, rowIndex, insertBelow?)` — grow tables (default: insert below the anchor row)
+  - `gdocs_delete_table_row(tableStartIndex, rowIndex)` — remove a row (errors if it's the last row — use `gdocs_delete_table` instead)
+  - `gdocs_insert_table_column(tableStartIndex, columnIndex, insertRight?)` — add a column (default: insert right of the anchor)
+  - `gdocs_delete_table_column(tableStartIndex, columnIndex)` — remove a column (errors if it's the last column)
+  - `gdocs_delete_table(tableStartIndex)` — remove an entire table in one batchUpdate. Wraps `deleteContentRange` over the table's structural element range.
+- Internal refactor: `DocsHandler` now has a shared `findTableElementByIndex` helper that locates a table by its startIndex (including nested tables). All six table tools use it for consistent error handling and bounds-validation via `assertTableBounds`.
+- 11 new unit tests covering each tool's request shape, insertBelow/insertRight directionality, bounds validation, and the last-row/last-column refusal. Total: 39 tests (was 28).
+- 74 total tools (was 69)
 
 ### v2.7.0 — 2026-05-14
 - `gdocs_fill_table_cell` — insert text into a cell by `(rowIndex, columnIndex)`. Handles cell content-range calculation internally, so callers don't need to compute cell text indices. Modes: `replace` (overwrite existing content, default) or `append` (insert before the cell's trailing newline). Solves the "fill empty cells next to labelled rows" workflow without manual index arithmetic. Pair with `gdocs_find_text` (which returns `tableContext` with row/column) to fill cells by their label.

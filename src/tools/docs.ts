@@ -15,6 +15,11 @@ import type {
   DeleteRangeRequest,
   GetStyleProfileRequest,
   FillTableCellRequest,
+  InsertTableRowRequest,
+  DeleteTableRowRequest,
+  InsertTableColumnRequest,
+  DeleteTableColumnRequest,
+  DeleteTableRequest,
   ToolDefinition,
   ToolResponse,
 } from '../types.js';
@@ -252,6 +257,83 @@ export function getDocsToolDefinitions(): ToolDefinition[] {
           },
         },
         required: ['documentId', 'index', 'rows', 'columns'],
+      },
+    },
+    {
+      name: 'gdocs_insert_table_row',
+      description:
+        'Insert a new row into a table above or below an existing row. tableStartIndex identifies the table (from gdocs_get_document); rowIndex picks the anchor row. Set insertBelow=true (default) to add the new row after the anchor, or false to add it before. Useful for growing tables like fee schedules or SOW deliverable lists. After insertion, indices for content after this table will shift — re-fetch the document or operate top-to-bottom.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          documentId: { type: 'string', description: 'The ID of the document' },
+          tableStartIndex: { type: 'number', description: 'startIndex of the table (from gdocs_get_document)' },
+          rowIndex: { type: 'number', description: '0-based row index of the anchor row' },
+          insertBelow: {
+            type: 'boolean',
+            description: 'true (default) to insert below the anchor row, false to insert above',
+          },
+        },
+        required: ['documentId', 'tableStartIndex', 'rowIndex'],
+      },
+    },
+    {
+      name: 'gdocs_delete_table_row',
+      description:
+        'Delete a row from a table by its 0-based row index. tableStartIndex identifies the table; rowIndex picks the row to remove. The Docs API will refuse to delete the last remaining row of a table — use gdocs_delete_table to remove a single-row table entirely. Indices for content after the table will shift after deletion.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          documentId: { type: 'string', description: 'The ID of the document' },
+          tableStartIndex: { type: 'number', description: 'startIndex of the table (from gdocs_get_document)' },
+          rowIndex: { type: 'number', description: '0-based row index to delete' },
+        },
+        required: ['documentId', 'tableStartIndex', 'rowIndex'],
+      },
+    },
+    {
+      name: 'gdocs_insert_table_column',
+      description:
+        'Insert a new column into a table to the left or right of an existing column. tableStartIndex identifies the table; columnIndex picks the anchor column. Set insertRight=true (default) to add the new column after the anchor, or false to add before. The new column starts empty in every row.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          documentId: { type: 'string', description: 'The ID of the document' },
+          tableStartIndex: { type: 'number', description: 'startIndex of the table (from gdocs_get_document)' },
+          columnIndex: { type: 'number', description: '0-based column index of the anchor column' },
+          insertRight: {
+            type: 'boolean',
+            description: 'true (default) to insert right of the anchor, false to insert left',
+          },
+        },
+        required: ['documentId', 'tableStartIndex', 'columnIndex'],
+      },
+    },
+    {
+      name: 'gdocs_delete_table_column',
+      description:
+        'Delete a column from a table by its 0-based column index. tableStartIndex identifies the table; columnIndex picks the column to remove. The Docs API will refuse to delete the last remaining column — use gdocs_delete_table to remove a single-column table entirely.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          documentId: { type: 'string', description: 'The ID of the document' },
+          tableStartIndex: { type: 'number', description: 'startIndex of the table (from gdocs_get_document)' },
+          columnIndex: { type: 'number', description: '0-based column index to delete' },
+        },
+        required: ['documentId', 'tableStartIndex', 'columnIndex'],
+      },
+    },
+    {
+      name: 'gdocs_delete_table',
+      description:
+        'Delete an entire table from the document. tableStartIndex identifies which table (from gdocs_get_document). Removes the table and all its content in one batchUpdate. Useful for stripping template skeletons (e.g. style-legend tables) from a copy. Indices for content after the table will shift.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          documentId: { type: 'string', description: 'The ID of the document' },
+          tableStartIndex: { type: 'number', description: 'startIndex of the table to delete (from gdocs_get_document)' },
+        },
+        required: ['documentId', 'tableStartIndex'],
       },
     },
     {
@@ -593,6 +675,16 @@ export class DocsHandler {
         return this.handleUpdateTable(this.validateUpdateTableArgs(args));
       case 'gdocs_fill_table_cell':
         return this.handleFillTableCell(this.validateFillTableCellArgs(args));
+      case 'gdocs_insert_table_row':
+        return this.handleInsertTableRow(this.validateInsertTableRowArgs(args));
+      case 'gdocs_delete_table_row':
+        return this.handleDeleteTableRow(this.validateDeleteTableRowArgs(args));
+      case 'gdocs_insert_table_column':
+        return this.handleInsertTableColumn(this.validateInsertTableColumnArgs(args));
+      case 'gdocs_delete_table_column':
+        return this.handleDeleteTableColumn(this.validateDeleteTableColumnArgs(args));
+      case 'gdocs_delete_table':
+        return this.handleDeleteTable(this.validateDeleteTableArgs(args));
       case 'gdocs_set_document_defaults':
         return this.handleSetDocumentDefaults(this.validateSetDocumentDefaultsArgs(args));
       case 'gdocs_create_from_template':
@@ -872,6 +964,100 @@ export class DocsHandler {
       columnIndex: args.columnIndex,
       text: args.text,
       mode: args.mode || 'replace',
+    };
+  }
+
+  private validateInsertTableRowArgs(args: any): InsertTableRowRequest {
+    if (!args || typeof args !== 'object') throw new Error('Invalid arguments: expected object');
+    if (!args.documentId || typeof args.documentId !== 'string') {
+      throw new Error('Invalid documentId: expected non-empty string');
+    }
+    if (typeof args.tableStartIndex !== 'number' || args.tableStartIndex < 0) {
+      throw new Error('Invalid tableStartIndex: expected non-negative number');
+    }
+    if (typeof args.rowIndex !== 'number' || args.rowIndex < 0) {
+      throw new Error('Invalid rowIndex: expected non-negative number');
+    }
+    if (args.insertBelow !== undefined && typeof args.insertBelow !== 'boolean') {
+      throw new Error('Invalid insertBelow: expected boolean');
+    }
+    return {
+      documentId: args.documentId,
+      tableStartIndex: args.tableStartIndex,
+      rowIndex: args.rowIndex,
+      insertBelow: args.insertBelow !== false, // default true
+    };
+  }
+
+  private validateDeleteTableRowArgs(args: any): DeleteTableRowRequest {
+    if (!args || typeof args !== 'object') throw new Error('Invalid arguments: expected object');
+    if (!args.documentId || typeof args.documentId !== 'string') {
+      throw new Error('Invalid documentId: expected non-empty string');
+    }
+    if (typeof args.tableStartIndex !== 'number' || args.tableStartIndex < 0) {
+      throw new Error('Invalid tableStartIndex: expected non-negative number');
+    }
+    if (typeof args.rowIndex !== 'number' || args.rowIndex < 0) {
+      throw new Error('Invalid rowIndex: expected non-negative number');
+    }
+    return {
+      documentId: args.documentId,
+      tableStartIndex: args.tableStartIndex,
+      rowIndex: args.rowIndex,
+    };
+  }
+
+  private validateInsertTableColumnArgs(args: any): InsertTableColumnRequest {
+    if (!args || typeof args !== 'object') throw new Error('Invalid arguments: expected object');
+    if (!args.documentId || typeof args.documentId !== 'string') {
+      throw new Error('Invalid documentId: expected non-empty string');
+    }
+    if (typeof args.tableStartIndex !== 'number' || args.tableStartIndex < 0) {
+      throw new Error('Invalid tableStartIndex: expected non-negative number');
+    }
+    if (typeof args.columnIndex !== 'number' || args.columnIndex < 0) {
+      throw new Error('Invalid columnIndex: expected non-negative number');
+    }
+    if (args.insertRight !== undefined && typeof args.insertRight !== 'boolean') {
+      throw new Error('Invalid insertRight: expected boolean');
+    }
+    return {
+      documentId: args.documentId,
+      tableStartIndex: args.tableStartIndex,
+      columnIndex: args.columnIndex,
+      insertRight: args.insertRight !== false, // default true
+    };
+  }
+
+  private validateDeleteTableColumnArgs(args: any): DeleteTableColumnRequest {
+    if (!args || typeof args !== 'object') throw new Error('Invalid arguments: expected object');
+    if (!args.documentId || typeof args.documentId !== 'string') {
+      throw new Error('Invalid documentId: expected non-empty string');
+    }
+    if (typeof args.tableStartIndex !== 'number' || args.tableStartIndex < 0) {
+      throw new Error('Invalid tableStartIndex: expected non-negative number');
+    }
+    if (typeof args.columnIndex !== 'number' || args.columnIndex < 0) {
+      throw new Error('Invalid columnIndex: expected non-negative number');
+    }
+    return {
+      documentId: args.documentId,
+      tableStartIndex: args.tableStartIndex,
+      columnIndex: args.columnIndex,
+    };
+  }
+
+  private validateDeleteTableArgs(args: any): DeleteTableRequest {
+    if (!args || typeof args !== 'object') throw new Error('Invalid arguments: expected object');
+    if (!args.documentId || typeof args.documentId !== 'string') {
+      throw new Error('Invalid documentId: expected non-empty string');
+    }
+    if (typeof args.tableStartIndex !== 'number' || args.tableStartIndex < 0) {
+      throw new Error('Invalid tableStartIndex: expected non-negative number');
+    }
+    return {
+      documentId: args.documentId,
+      tableStartIndex: args.tableStartIndex,
     };
   }
 
@@ -1617,48 +1803,62 @@ export class DocsHandler {
     }
   }
 
-  private async handleFillTableCell(args: FillTableCellRequest): Promise<ToolResponse> {
-    try {
-      const doc = await this.docs.documents.get({ documentId: args.documentId });
-
-      // Locate the table at tableStartIndex (top-level or nested)
-      let targetTable: docs_v1.Schema$Table | undefined;
-      const findTable = (elements: docs_v1.Schema$StructuralElement[]): void => {
-        for (const element of elements) {
-          if (targetTable) return;
-          if (element.table) {
-            if (element.startIndex === args.tableStartIndex) {
-              targetTable = element.table;
-              return;
-            }
-            // Recurse into nested tables
-            for (const row of element.table.tableRows || []) {
-              for (const cell of row.tableCells || []) {
-                if (cell.content) findTable(cell.content);
-              }
+  /**
+   * Find a table by its structural element startIndex. Searches top-level body
+   * and recurses into nested tables. Throws if not found.
+   */
+  private async findTableElementByIndex(
+    documentId: string,
+    tableStartIndex: number,
+  ): Promise<{ table: docs_v1.Schema$Table; element: docs_v1.Schema$StructuralElement }> {
+    const doc = await this.docs.documents.get({ documentId });
+    let result: { table: docs_v1.Schema$Table; element: docs_v1.Schema$StructuralElement } | undefined;
+    const walk = (elements: docs_v1.Schema$StructuralElement[]): void => {
+      for (const element of elements) {
+        if (result) return;
+        if (element.table) {
+          if (element.startIndex === tableStartIndex) {
+            result = { table: element.table, element };
+            return;
+          }
+          for (const row of element.table.tableRows || []) {
+            for (const cell of row.tableCells || []) {
+              if (cell.content) walk(cell.content);
             }
           }
         }
-      };
-      findTable(doc.data.body?.content || []);
-
-      if (!targetTable) {
-        throw new Error(`No table found at tableStartIndex ${args.tableStartIndex}`);
       }
+    };
+    walk(doc.data.body?.content || []);
+    if (!result) {
+      throw new Error(`No table found at tableStartIndex ${tableStartIndex}`);
+    }
+    return result;
+  }
 
-      const rows = targetTable.tableRows || [];
-      if (args.rowIndex >= rows.length) {
-        throw new Error(
-          `rowIndex ${args.rowIndex} out of bounds (table has ${rows.length} rows)`,
-        );
-      }
+  /** Validate that the given row/column indices are in bounds for the given table. */
+  private assertTableBounds(
+    table: docs_v1.Schema$Table,
+    rowIndex?: number,
+    columnIndex?: number,
+  ): void {
+    const rowCount = table.tableRows?.length || 0;
+    if (rowIndex !== undefined && rowIndex >= rowCount) {
+      throw new Error(`rowIndex ${rowIndex} out of bounds (table has ${rowCount} rows)`);
+    }
+    const columnCount = table.tableRows?.[0]?.tableCells?.length || 0;
+    if (columnIndex !== undefined && columnIndex >= columnCount) {
+      throw new Error(`columnIndex ${columnIndex} out of bounds (table has ${columnCount} columns)`);
+    }
+  }
+
+  private async handleFillTableCell(args: FillTableCellRequest): Promise<ToolResponse> {
+    try {
+      const { table } = await this.findTableElementByIndex(args.documentId, args.tableStartIndex);
+      this.assertTableBounds(table, args.rowIndex, args.columnIndex);
+
+      const rows = table.tableRows || [];
       const cells = rows[args.rowIndex].tableCells || [];
-      if (args.columnIndex >= cells.length) {
-        throw new Error(
-          `columnIndex ${args.columnIndex} out of bounds (row has ${cells.length} columns)`,
-        );
-      }
-
       const cell = cells[args.columnIndex];
       const content = cell.content || [];
       if (content.length === 0) {
@@ -1735,6 +1935,203 @@ export class DocsHandler {
       });
     } catch (error) {
       return errorResponse('filling table cell', error);
+    }
+  }
+
+  private async handleInsertTableRow(args: InsertTableRowRequest): Promise<ToolResponse> {
+    try {
+      const { table } = await this.findTableElementByIndex(args.documentId, args.tableStartIndex);
+      this.assertTableBounds(table, args.rowIndex);
+
+      const insertBelow = args.insertBelow !== false;
+      const oldRowCount = table.tableRows?.length || 0;
+
+      await this.docs.documents.batchUpdate({
+        documentId: args.documentId,
+        requestBody: {
+          requests: [
+            {
+              insertTableRow: {
+                tableCellLocation: {
+                  tableStartLocation: { index: args.tableStartIndex },
+                  rowIndex: args.rowIndex,
+                  columnIndex: 0,
+                },
+                insertBelow,
+              },
+            },
+          ],
+        },
+      });
+
+      return successResponse({
+        success: true,
+        tableStartIndex: args.tableStartIndex,
+        anchorRowIndex: args.rowIndex,
+        insertBelow,
+        rowsBefore: oldRowCount,
+        rowsAfter: oldRowCount + 1,
+      });
+    } catch (error) {
+      return errorResponse('inserting table row', error);
+    }
+  }
+
+  private async handleDeleteTableRow(args: DeleteTableRowRequest): Promise<ToolResponse> {
+    try {
+      const { table } = await this.findTableElementByIndex(args.documentId, args.tableStartIndex);
+      this.assertTableBounds(table, args.rowIndex);
+
+      const oldRowCount = table.tableRows?.length || 0;
+      if (oldRowCount <= 1) {
+        throw new Error(
+          'Cannot delete the last row of a table — use gdocs_delete_table to remove the table entirely',
+        );
+      }
+
+      await this.docs.documents.batchUpdate({
+        documentId: args.documentId,
+        requestBody: {
+          requests: [
+            {
+              deleteTableRow: {
+                tableCellLocation: {
+                  tableStartLocation: { index: args.tableStartIndex },
+                  rowIndex: args.rowIndex,
+                  columnIndex: 0,
+                },
+              },
+            },
+          ],
+        },
+      });
+
+      return successResponse({
+        success: true,
+        tableStartIndex: args.tableStartIndex,
+        deletedRowIndex: args.rowIndex,
+        rowsBefore: oldRowCount,
+        rowsAfter: oldRowCount - 1,
+      });
+    } catch (error) {
+      return errorResponse('deleting table row', error);
+    }
+  }
+
+  private async handleInsertTableColumn(args: InsertTableColumnRequest): Promise<ToolResponse> {
+    try {
+      const { table } = await this.findTableElementByIndex(args.documentId, args.tableStartIndex);
+      this.assertTableBounds(table, undefined, args.columnIndex);
+
+      const insertRight = args.insertRight !== false;
+      const oldColumnCount = table.tableRows?.[0]?.tableCells?.length || 0;
+
+      await this.docs.documents.batchUpdate({
+        documentId: args.documentId,
+        requestBody: {
+          requests: [
+            {
+              insertTableColumn: {
+                tableCellLocation: {
+                  tableStartLocation: { index: args.tableStartIndex },
+                  rowIndex: 0,
+                  columnIndex: args.columnIndex,
+                },
+                insertRight,
+              },
+            },
+          ],
+        },
+      });
+
+      return successResponse({
+        success: true,
+        tableStartIndex: args.tableStartIndex,
+        anchorColumnIndex: args.columnIndex,
+        insertRight,
+        columnsBefore: oldColumnCount,
+        columnsAfter: oldColumnCount + 1,
+      });
+    } catch (error) {
+      return errorResponse('inserting table column', error);
+    }
+  }
+
+  private async handleDeleteTableColumn(args: DeleteTableColumnRequest): Promise<ToolResponse> {
+    try {
+      const { table } = await this.findTableElementByIndex(args.documentId, args.tableStartIndex);
+      this.assertTableBounds(table, undefined, args.columnIndex);
+
+      const oldColumnCount = table.tableRows?.[0]?.tableCells?.length || 0;
+      if (oldColumnCount <= 1) {
+        throw new Error(
+          'Cannot delete the last column of a table — use gdocs_delete_table to remove the table entirely',
+        );
+      }
+
+      await this.docs.documents.batchUpdate({
+        documentId: args.documentId,
+        requestBody: {
+          requests: [
+            {
+              deleteTableColumn: {
+                tableCellLocation: {
+                  tableStartLocation: { index: args.tableStartIndex },
+                  rowIndex: 0,
+                  columnIndex: args.columnIndex,
+                },
+              },
+            },
+          ],
+        },
+      });
+
+      return successResponse({
+        success: true,
+        tableStartIndex: args.tableStartIndex,
+        deletedColumnIndex: args.columnIndex,
+        columnsBefore: oldColumnCount,
+        columnsAfter: oldColumnCount - 1,
+      });
+    } catch (error) {
+      return errorResponse('deleting table column', error);
+    }
+  }
+
+  private async handleDeleteTable(args: DeleteTableRequest): Promise<ToolResponse> {
+    try {
+      const { element } = await this.findTableElementByIndex(args.documentId, args.tableStartIndex);
+      const startIndex = element.startIndex;
+      const endIndex = element.endIndex;
+      if (
+        startIndex === undefined ||
+        startIndex === null ||
+        endIndex === undefined ||
+        endIndex === null
+      ) {
+        throw new Error('Table element indices missing — cannot delete');
+      }
+
+      await this.docs.documents.batchUpdate({
+        documentId: args.documentId,
+        requestBody: {
+          requests: [
+            {
+              deleteContentRange: {
+                range: { startIndex, endIndex },
+              },
+            },
+          ],
+        },
+      });
+
+      return successResponse({
+        success: true,
+        deletedRange: `${startIndex}-${endIndex}`,
+        charactersDeleted: endIndex - startIndex,
+      });
+    } catch (error) {
+      return errorResponse('deleting table', error);
     }
   }
 

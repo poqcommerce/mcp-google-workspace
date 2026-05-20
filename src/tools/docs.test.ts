@@ -491,3 +491,232 @@ describe('gdocs_fill_table_cell', () => {
     expect(batchUpdate).not.toHaveBeenCalled();
   });
 });
+
+// ── gdocs_insert_table_row / gdocs_delete_table_row ─────────────────────────
+
+describe('gdocs_insert_table_row', () => {
+  it('sends insertTableRow with insertBelow=true by default', async () => {
+    const { handler, batchUpdate } = makeHandlerWithTable({
+      tableStartIndex: 100,
+      cellContent: [
+        [{ startIndex: 102, endIndex: 108, text: 'A\n' }],
+        [{ startIndex: 110, endIndex: 116, text: 'B\n' }],
+      ],
+    });
+
+    await handler.handleTool('gdocs_insert_table_row', {
+      documentId: 'test-id',
+      tableStartIndex: 100,
+      rowIndex: 1,
+    });
+
+    expect(batchUpdate).toHaveBeenCalledTimes(1);
+    const req = batchUpdate.mock.calls[0][0].requestBody.requests[0];
+    expect(req.insertTableRow.tableCellLocation).toEqual({
+      tableStartLocation: { index: 100 },
+      rowIndex: 1,
+      columnIndex: 0,
+    });
+    expect(req.insertTableRow.insertBelow).toBe(true);
+  });
+
+  it('honours insertBelow=false', async () => {
+    const { handler, batchUpdate } = makeHandlerWithTable({
+      tableStartIndex: 100,
+      cellContent: [[{ startIndex: 102, endIndex: 108, text: 'A\n' }]],
+    });
+
+    await handler.handleTool('gdocs_insert_table_row', {
+      documentId: 'test-id',
+      tableStartIndex: 100,
+      rowIndex: 0,
+      insertBelow: false,
+    });
+
+    const req = batchUpdate.mock.calls[0][0].requestBody.requests[0];
+    expect(req.insertTableRow.insertBelow).toBe(false);
+  });
+
+  it('errors when rowIndex is out of bounds', async () => {
+    const { handler, batchUpdate } = makeHandlerWithTable({
+      tableStartIndex: 100,
+      cellContent: [[{ startIndex: 102, endIndex: 108, text: 'A\n' }]],
+    });
+
+    const result = await handler.handleTool('gdocs_insert_table_row', {
+      documentId: 'test-id',
+      tableStartIndex: 100,
+      rowIndex: 5,
+    });
+    expect((result as any).isError).toBe(true);
+    expect(batchUpdate).not.toHaveBeenCalled();
+  });
+});
+
+describe('gdocs_delete_table_row', () => {
+  it('sends deleteTableRow with the right tableCellLocation', async () => {
+    const { handler, batchUpdate } = makeHandlerWithTable({
+      tableStartIndex: 100,
+      cellContent: [
+        [{ startIndex: 102, endIndex: 108, text: 'A\n' }],
+        [{ startIndex: 110, endIndex: 116, text: 'B\n' }],
+      ],
+    });
+
+    await handler.handleTool('gdocs_delete_table_row', {
+      documentId: 'test-id',
+      tableStartIndex: 100,
+      rowIndex: 0,
+    });
+
+    const req = batchUpdate.mock.calls[0][0].requestBody.requests[0];
+    expect(req.deleteTableRow.tableCellLocation).toEqual({
+      tableStartLocation: { index: 100 },
+      rowIndex: 0,
+      columnIndex: 0,
+    });
+  });
+
+  it('refuses to delete the last remaining row', async () => {
+    const { handler, batchUpdate } = makeHandlerWithTable({
+      tableStartIndex: 100,
+      cellContent: [[{ startIndex: 102, endIndex: 108, text: 'Only\n' }]],
+    });
+
+    const result = await handler.handleTool('gdocs_delete_table_row', {
+      documentId: 'test-id',
+      tableStartIndex: 100,
+      rowIndex: 0,
+    });
+    expect((result as any).isError).toBe(true);
+    expect((result as any).content[0].text).toContain('last row');
+    expect(batchUpdate).not.toHaveBeenCalled();
+  });
+});
+
+describe('gdocs_insert_table_column', () => {
+  it('sends insertTableColumn with insertRight=true by default', async () => {
+    const { handler, batchUpdate } = makeHandlerWithTable({
+      tableStartIndex: 100,
+      cellContent: [
+        [
+          { startIndex: 102, endIndex: 108, text: 'A\n' },
+          { startIndex: 110, endIndex: 116, text: 'B\n' },
+        ],
+      ],
+    });
+
+    await handler.handleTool('gdocs_insert_table_column', {
+      documentId: 'test-id',
+      tableStartIndex: 100,
+      columnIndex: 1,
+    });
+
+    const req = batchUpdate.mock.calls[0][0].requestBody.requests[0];
+    expect(req.insertTableColumn.tableCellLocation).toEqual({
+      tableStartLocation: { index: 100 },
+      rowIndex: 0,
+      columnIndex: 1,
+    });
+    expect(req.insertTableColumn.insertRight).toBe(true);
+  });
+
+  it('honours insertRight=false', async () => {
+    const { handler, batchUpdate } = makeHandlerWithTable({
+      tableStartIndex: 100,
+      cellContent: [
+        [
+          { startIndex: 102, endIndex: 108, text: 'A\n' },
+          { startIndex: 110, endIndex: 116, text: 'B\n' },
+        ],
+      ],
+    });
+
+    await handler.handleTool('gdocs_insert_table_column', {
+      documentId: 'test-id',
+      tableStartIndex: 100,
+      columnIndex: 0,
+      insertRight: false,
+    });
+
+    const req = batchUpdate.mock.calls[0][0].requestBody.requests[0];
+    expect(req.insertTableColumn.insertRight).toBe(false);
+  });
+});
+
+describe('gdocs_delete_table_column', () => {
+  it('sends deleteTableColumn with the right tableCellLocation', async () => {
+    const { handler, batchUpdate } = makeHandlerWithTable({
+      tableStartIndex: 100,
+      cellContent: [
+        [
+          { startIndex: 102, endIndex: 108, text: 'A\n' },
+          { startIndex: 110, endIndex: 116, text: 'B\n' },
+        ],
+      ],
+    });
+
+    await handler.handleTool('gdocs_delete_table_column', {
+      documentId: 'test-id',
+      tableStartIndex: 100,
+      columnIndex: 1,
+    });
+
+    const req = batchUpdate.mock.calls[0][0].requestBody.requests[0];
+    expect(req.deleteTableColumn.tableCellLocation).toEqual({
+      tableStartLocation: { index: 100 },
+      rowIndex: 0,
+      columnIndex: 1,
+    });
+  });
+
+  it('refuses to delete the last remaining column', async () => {
+    const { handler, batchUpdate } = makeHandlerWithTable({
+      tableStartIndex: 100,
+      cellContent: [[{ startIndex: 102, endIndex: 108, text: 'Only\n' }]],
+    });
+
+    const result = await handler.handleTool('gdocs_delete_table_column', {
+      documentId: 'test-id',
+      tableStartIndex: 100,
+      columnIndex: 0,
+    });
+    expect((result as any).isError).toBe(true);
+    expect((result as any).content[0].text).toContain('last column');
+    expect(batchUpdate).not.toHaveBeenCalled();
+  });
+});
+
+describe('gdocs_delete_table', () => {
+  it('deletes the table\'s full structural element range', async () => {
+    const { handler, batchUpdate } = makeHandlerWithTable({
+      tableStartIndex: 100,
+      cellContent: [[{ startIndex: 102, endIndex: 108, text: 'A\n' }]],
+    });
+
+    await handler.handleTool('gdocs_delete_table', {
+      documentId: 'test-id',
+      tableStartIndex: 100,
+    });
+
+    const req = batchUpdate.mock.calls[0][0].requestBody.requests[0];
+    expect(req.deleteContentRange.range.startIndex).toBe(100);
+    // Mock table sets element.endIndex = startIndex + 50
+    expect(req.deleteContentRange.range.endIndex).toBe(150);
+  });
+
+  it('errors when no table exists at tableStartIndex', async () => {
+    const { handler, batchUpdate } = makeHandlerWithTable({
+      tableStartIndex: 100,
+      cellContent: [[{ startIndex: 102, endIndex: 108, text: 'A\n' }]],
+    });
+
+    const result = await handler.handleTool('gdocs_delete_table', {
+      documentId: 'test-id',
+      tableStartIndex: 999,
+    });
+    expect((result as any).isError).toBe(true);
+    expect((result as any).content[0].text).toContain('No table found');
+    expect(batchUpdate).not.toHaveBeenCalled();
+  });
+});
