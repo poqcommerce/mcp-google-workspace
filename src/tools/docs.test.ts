@@ -267,3 +267,227 @@ describe('gdocs_get_document — table rendering', () => {
     expect(text).not.toContain('|');
   });
 });
+
+// ── gdocs_fill_table_cell ───────────────────────────────────────────────────
+
+/**
+ * Build a handler with a table at a known startIndex. Each cell has a single
+ * paragraph whose start/end indices are explicit. Returns the handler plus the
+ * batchUpdate mock so tests can inspect what requests were sent.
+ *
+ * Layout for a 2×2 table at startIndex=100 with cells containing "A\n", "B\n", "C\n", "D\n":
+ *   Cell [0,0]: paragraph at [102, 104] (content "A\n", trailing \n at 103)
+ *   Cell [0,1]: paragraph at [105, 107]
+ *   Cell [1,0]: paragraph at [108, 110]
+ *   Cell [1,1]: paragraph at [111, 113]
+ * (Exact spacing isn't important for the tests — only that the start/end indices are present.)
+ */
+function makeHandlerWithTable(opts: {
+  tableStartIndex: number;
+  cellContent: { startIndex: number; endIndex: number; text: string }[][];
+}) {
+  const tableRows = opts.cellContent.map((row) => ({
+    tableCells: row.map((cell) => ({
+      content: [
+        {
+          startIndex: cell.startIndex,
+          endIndex: cell.endIndex,
+          paragraph: {
+            elements: [
+              {
+                startIndex: cell.startIndex,
+                endIndex: cell.endIndex,
+                textRun: { content: cell.text },
+              },
+            ],
+          },
+        },
+      ],
+    })),
+  }));
+
+  const docData: docs_v1.Schema$Document = {
+    title: 'Table Test',
+    body: {
+      content: [
+        {
+          startIndex: opts.tableStartIndex,
+          endIndex: opts.tableStartIndex + 50,
+          table: {
+            rows: opts.cellContent.length,
+            columns: opts.cellContent[0]?.length || 0,
+            tableRows,
+          },
+        },
+      ],
+    },
+  };
+
+  const batchUpdate = vi.fn().mockResolvedValue({ data: {} });
+  const mockDocs = {
+    documents: {
+      get: vi.fn().mockResolvedValue({ data: docData }),
+      create: vi.fn(),
+      batchUpdate,
+    },
+  } as unknown as docs_v1.Docs;
+
+  const mockDrive = {} as unknown as drive_v3.Drive;
+  return { handler: new DocsHandler(mockDocs, mockDrive), batchUpdate };
+}
+
+describe('gdocs_fill_table_cell', () => {
+  it('replaces existing content: deletes [firstStart, lastEnd-1) then inserts', async () => {
+    // Cell at [102, 108] holding "Hello\n": delete should be [102, 107), insert at 102.
+    const { handler, batchUpdate } = makeHandlerWithTable({
+      tableStartIndex: 100,
+      cellContent: [
+        [{ startIndex: 102, endIndex: 108, text: 'Hello\n' }],
+      ],
+    });
+
+    const result = await handler.handleTool('gdocs_fill_table_cell', {
+      documentId: 'test-id',
+      tableStartIndex: 100,
+      rowIndex: 0,
+      columnIndex: 0,
+      text: 'Replaced',
+    });
+    expect(result).not.toBeNull();
+    expect((result as any).isError).toBeFalsy();
+
+    expect(batchUpdate).toHaveBeenCalledTimes(1);
+    const requests = batchUpdate.mock.calls[0][0].requestBody.requests;
+    expect(requests).toHaveLength(2);
+    expect(requests[0].deleteContentRange.range).toEqual({ startIndex: 102, endIndex: 107 });
+    expect(requests[1].insertText).toEqual({ location: { index: 102 }, text: 'Replaced' });
+  });
+
+  it('replace on empty cell (just \\n): skips delete, only inserts', async () => {
+    // Cell at [102, 103] holding "\n" only — nothing to delete.
+    const { handler, batchUpdate } = makeHandlerWithTable({
+      tableStartIndex: 100,
+      cellContent: [
+        [{ startIndex: 102, endIndex: 103, text: '\n' }],
+      ],
+    });
+
+    await handler.handleTool('gdocs_fill_table_cell', {
+      documentId: 'test-id',
+      tableStartIndex: 100,
+      rowIndex: 0,
+      columnIndex: 0,
+      text: 'FirstValue',
+    });
+
+    const requests = batchUpdate.mock.calls[0][0].requestBody.requests;
+    expect(requests).toHaveLength(1);
+    expect(requests[0].insertText).toEqual({ location: { index: 102 }, text: 'FirstValue' });
+  });
+
+  it('append mode: inserts at lastEnd-1 (before trailing newline)', async () => {
+    // Cell at [102, 108] holding "Hello\n" — append should insert at 107.
+    const { handler, batchUpdate } = makeHandlerWithTable({
+      tableStartIndex: 100,
+      cellContent: [
+        [{ startIndex: 102, endIndex: 108, text: 'Hello\n' }],
+      ],
+    });
+
+    await handler.handleTool('gdocs_fill_table_cell', {
+      documentId: 'test-id',
+      tableStartIndex: 100,
+      rowIndex: 0,
+      columnIndex: 0,
+      text: ' world',
+      mode: 'append',
+    });
+
+    const requests = batchUpdate.mock.calls[0][0].requestBody.requests;
+    expect(requests).toHaveLength(1);
+    expect(requests[0].insertText).toEqual({ location: { index: 107 }, text: ' world' });
+  });
+
+  it('addresses the correct cell in a multi-row, multi-column table', async () => {
+    // Verify rowIndex/columnIndex routing: target cell [1,1] in a 2×2.
+    const { handler, batchUpdate } = makeHandlerWithTable({
+      tableStartIndex: 100,
+      cellContent: [
+        [
+          { startIndex: 102, endIndex: 108, text: 'A0,0\n' },
+          { startIndex: 110, endIndex: 116, text: 'A0,1\n' },
+        ],
+        [
+          { startIndex: 118, endIndex: 124, text: 'A1,0\n' },
+          { startIndex: 126, endIndex: 132, text: 'A1,1\n' },
+        ],
+      ],
+    });
+
+    await handler.handleTool('gdocs_fill_table_cell', {
+      documentId: 'test-id',
+      tableStartIndex: 100,
+      rowIndex: 1,
+      columnIndex: 1,
+      text: 'NEW',
+    });
+
+    const requests = batchUpdate.mock.calls[0][0].requestBody.requests;
+    expect(requests[0].deleteContentRange.range).toEqual({ startIndex: 126, endIndex: 131 });
+    expect(requests[1].insertText).toEqual({ location: { index: 126 }, text: 'NEW' });
+  });
+
+  it('errors when rowIndex is out of bounds', async () => {
+    const { handler, batchUpdate } = makeHandlerWithTable({
+      tableStartIndex: 100,
+      cellContent: [[{ startIndex: 102, endIndex: 108, text: 'A\n' }]],
+    });
+
+    const result = await handler.handleTool('gdocs_fill_table_cell', {
+      documentId: 'test-id',
+      tableStartIndex: 100,
+      rowIndex: 5,
+      columnIndex: 0,
+      text: 'x',
+    });
+    expect((result as any).isError).toBe(true);
+    expect((result as any).content[0].text).toContain('rowIndex 5 out of bounds');
+    expect(batchUpdate).not.toHaveBeenCalled();
+  });
+
+  it('errors when no table exists at tableStartIndex', async () => {
+    const { handler, batchUpdate } = makeHandlerWithTable({
+      tableStartIndex: 100,
+      cellContent: [[{ startIndex: 102, endIndex: 108, text: 'A\n' }]],
+    });
+
+    const result = await handler.handleTool('gdocs_fill_table_cell', {
+      documentId: 'test-id',
+      tableStartIndex: 999, // wrong index
+      rowIndex: 0,
+      columnIndex: 0,
+      text: 'x',
+    });
+    expect((result as any).isError).toBe(true);
+    expect((result as any).content[0].text).toContain('No table found');
+    expect(batchUpdate).not.toHaveBeenCalled();
+  });
+
+  it('empty text is a no-op (returns success but no API call)', async () => {
+    const { handler, batchUpdate } = makeHandlerWithTable({
+      tableStartIndex: 100,
+      cellContent: [[{ startIndex: 102, endIndex: 103, text: '\n' }]],
+    });
+
+    const result = await handler.handleTool('gdocs_fill_table_cell', {
+      documentId: 'test-id',
+      tableStartIndex: 100,
+      rowIndex: 0,
+      columnIndex: 0,
+      text: '',
+      mode: 'append',
+    });
+    expect((result as any).isError).toBeFalsy();
+    expect(batchUpdate).not.toHaveBeenCalled();
+  });
+});

@@ -160,6 +160,15 @@ export interface GetStyleProfileRequest {
   documentId: string;
 }
 
+export interface FillTableCellRequest {
+  documentId: string;
+  tableStartIndex: number;
+  rowIndex: number;
+  columnIndex: number;
+  text: string;
+  mode?: 'replace' | 'append';
+}
+
 // ── Google Drive ───────────────────────────────────────────────────────────────
 
 export interface MoveFileRequest {

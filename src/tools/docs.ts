@@ -14,6 +14,7 @@ import type {
   FindTextRequest,
   DeleteRangeRequest,
   GetStyleProfileRequest,
+  FillTableCellRequest,
   ToolDefinition,
   ToolResponse,
 } from '../types.js';
@@ -251,6 +252,27 @@ export function getDocsToolDefinitions(): ToolDefinition[] {
           },
         },
         required: ['documentId', 'index', 'rows', 'columns'],
+      },
+    },
+    {
+      name: 'gdocs_fill_table_cell',
+      description:
+        'Insert text into a specific table cell by row/column index. Handles cell content-range calculation internally — you don\'t need to know the cell\'s text indices. Use mode="replace" (default) to overwrite the cell\'s existing content, or mode="append" to add to the end. Pair with gdocs_find_text (which returns tableContext with rowIndex/columnIndex) to fill the cell next to a labelled row.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          documentId: { type: 'string', description: 'The ID of the document' },
+          tableStartIndex: { type: 'number', description: 'startIndex of the table element (from gdocs_get_document)' },
+          rowIndex: { type: 'number', description: '0-based row index within the table' },
+          columnIndex: { type: 'number', description: '0-based column index within the row' },
+          text: { type: 'string', description: 'Text to insert into the cell' },
+          mode: {
+            type: 'string',
+            description: 'replace (overwrite existing content, default) or append (add to end)',
+            enum: ['replace', 'append'],
+          },
+        },
+        required: ['documentId', 'tableStartIndex', 'rowIndex', 'columnIndex', 'text'],
       },
     },
     {
@@ -569,6 +591,8 @@ export class DocsHandler {
         return this.handleInsertTable(this.validateInsertTableArgs(args));
       case 'gdocs_update_table':
         return this.handleUpdateTable(this.validateUpdateTableArgs(args));
+      case 'gdocs_fill_table_cell':
+        return this.handleFillTableCell(this.validateFillTableCellArgs(args));
       case 'gdocs_set_document_defaults':
         return this.handleSetDocumentDefaults(this.validateSetDocumentDefaultsArgs(args));
       case 'gdocs_create_from_template':
@@ -818,6 +842,36 @@ export class DocsHandler {
       query: args.query,
       matchCase: args.matchCase !== false,
       firstOnly: args.firstOnly === true,
+    };
+  }
+
+  private validateFillTableCellArgs(args: any): FillTableCellRequest {
+    if (!args || typeof args !== 'object') throw new Error('Invalid arguments: expected object');
+    if (!args.documentId || typeof args.documentId !== 'string') {
+      throw new Error('Invalid documentId: expected non-empty string');
+    }
+    if (typeof args.tableStartIndex !== 'number' || args.tableStartIndex < 0) {
+      throw new Error('Invalid tableStartIndex: expected non-negative number');
+    }
+    if (typeof args.rowIndex !== 'number' || args.rowIndex < 0) {
+      throw new Error('Invalid rowIndex: expected non-negative number');
+    }
+    if (typeof args.columnIndex !== 'number' || args.columnIndex < 0) {
+      throw new Error('Invalid columnIndex: expected non-negative number');
+    }
+    if (typeof args.text !== 'string') {
+      throw new Error('Invalid text: expected string');
+    }
+    if (args.mode !== undefined && args.mode !== 'replace' && args.mode !== 'append') {
+      throw new Error('Invalid mode: expected "replace" or "append"');
+    }
+    return {
+      documentId: args.documentId,
+      tableStartIndex: args.tableStartIndex,
+      rowIndex: args.rowIndex,
+      columnIndex: args.columnIndex,
+      text: args.text,
+      mode: args.mode || 'replace',
     };
   }
 
@@ -1560,6 +1614,127 @@ export class DocsHandler {
       });
     } catch (error) {
       return errorResponse('updating table', error);
+    }
+  }
+
+  private async handleFillTableCell(args: FillTableCellRequest): Promise<ToolResponse> {
+    try {
+      const doc = await this.docs.documents.get({ documentId: args.documentId });
+
+      // Locate the table at tableStartIndex (top-level or nested)
+      let targetTable: docs_v1.Schema$Table | undefined;
+      const findTable = (elements: docs_v1.Schema$StructuralElement[]): void => {
+        for (const element of elements) {
+          if (targetTable) return;
+          if (element.table) {
+            if (element.startIndex === args.tableStartIndex) {
+              targetTable = element.table;
+              return;
+            }
+            // Recurse into nested tables
+            for (const row of element.table.tableRows || []) {
+              for (const cell of row.tableCells || []) {
+                if (cell.content) findTable(cell.content);
+              }
+            }
+          }
+        }
+      };
+      findTable(doc.data.body?.content || []);
+
+      if (!targetTable) {
+        throw new Error(`No table found at tableStartIndex ${args.tableStartIndex}`);
+      }
+
+      const rows = targetTable.tableRows || [];
+      if (args.rowIndex >= rows.length) {
+        throw new Error(
+          `rowIndex ${args.rowIndex} out of bounds (table has ${rows.length} rows)`,
+        );
+      }
+      const cells = rows[args.rowIndex].tableCells || [];
+      if (args.columnIndex >= cells.length) {
+        throw new Error(
+          `columnIndex ${args.columnIndex} out of bounds (row has ${cells.length} columns)`,
+        );
+      }
+
+      const cell = cells[args.columnIndex];
+      const content = cell.content || [];
+      if (content.length === 0) {
+        throw new Error('Cell has no content paragraphs');
+      }
+
+      const firstStart = content[0].startIndex;
+      const lastEnd = content[content.length - 1].endIndex;
+      if (
+        firstStart === undefined ||
+        firstStart === null ||
+        lastEnd === undefined ||
+        lastEnd === null
+      ) {
+        throw new Error('Cell content indices missing — cannot resolve insert position');
+      }
+
+      const text = normaliseText(args.text);
+      const mode = args.mode || 'replace';
+      const requests: docs_v1.Schema$Request[] = [];
+
+      // The cell's trailing newline sits at lastEnd - 1. We preserve it.
+      // Replace: delete [firstStart, lastEnd - 1) (everything except the trailing \n), then insert at firstStart.
+      // Append: insert at lastEnd - 1 (just before the trailing \n).
+      const trailingNewlineIndex = lastEnd - 1;
+
+      if (mode === 'replace') {
+        if (trailingNewlineIndex > firstStart) {
+          requests.push({
+            deleteContentRange: {
+              range: { startIndex: firstStart, endIndex: trailingNewlineIndex },
+            },
+          });
+        }
+        if (text.length > 0) {
+          requests.push({
+            insertText: { location: { index: firstStart }, text },
+          });
+        }
+      } else {
+        // append
+        if (text.length > 0) {
+          requests.push({
+            insertText: { location: { index: trailingNewlineIndex }, text },
+          });
+        }
+      }
+
+      if (requests.length === 0) {
+        // Empty text in append mode, or empty replace on already-empty cell — no-op
+        return successResponse({
+          success: true,
+          tableStartIndex: args.tableStartIndex,
+          rowIndex: args.rowIndex,
+          columnIndex: args.columnIndex,
+          mode,
+          charactersInserted: 0,
+          note: 'No-op (empty text or empty cell)',
+        });
+      }
+
+      await this.docs.documents.batchUpdate({
+        documentId: args.documentId,
+        requestBody: { requests },
+      });
+
+      return successResponse({
+        success: true,
+        tableStartIndex: args.tableStartIndex,
+        rowIndex: args.rowIndex,
+        columnIndex: args.columnIndex,
+        mode,
+        charactersInserted: text.length,
+      });
+    } catch (error) {
+      return errorResponse('filling table cell', error);
     }
   }
 

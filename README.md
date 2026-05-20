@@ -1,8 +1,8 @@
 # Google Workspace MCP Server
 
-An MCP server that gives Claude (or any MCP-compatible AI) full read/write access to Google Sheets, Docs, Drive, and Slides. 68 tools, batch operations throughout, and a template workflow for branded presentations.
+An MCP server that gives Claude (or any MCP-compatible AI) full read/write access to Google Sheets, Docs, Drive, and Slides. 69 tools, batch operations throughout, and a template workflow for branded presentations.
 
-**Version:** 2.6.3 | **Last Updated:** 2026-05-14 | **Tools:** 68
+**Version:** 2.7.0 | **Last Updated:** 2026-05-14 | **Tools:** 69
 
 ---
 
@@ -162,7 +162,7 @@ Restart Claude, then try asking: "Search my Google Drive for recent documents." 
 | `gsheets_insert_delete_dimensions` | Insert or delete rows/columns |
 | `gsheets_sort_range` | Sort data by one or more columns |
 
-### Google Docs — 16 tools
+### Google Docs — 17 tools
 
 | Tool | Description |
 |------|-------------|
@@ -181,6 +181,7 @@ Restart Claude, then try asking: "Search my Google Drive for recent documents." 
 | `gdocs_create_bullets` | Apply bulleted or numbered list style to a range |
 | `gdocs_insert_table` | Insert a table at an index, optionally populate cells with a 2D array |
 | `gdocs_update_table` | Style a table: column widths, header/body backgrounds, padding, borders, alignment |
+| `gdocs_fill_table_cell` | Insert text into a cell by (rowIndex, columnIndex) — replaces or appends, no index counting needed |
 | `gdocs_set_document_defaults` | Set document-wide body font/size/colour and page margins (NORMAL_TEXT only — preserves heading sizes) |
 
 ### Google Drive — 20 tools
@@ -384,7 +385,7 @@ mcp-google-workspace/
 │   ├── auth.ts           # Standalone OAuth flow (npm run auth)
 │   └── tools/
 │       ├── sheets.ts     # 13 tools
-│       ├── docs.ts       # 16 tools
+│       ├── docs.ts       # 17 tools
 │       ├── drive.ts      # 20 tools
 │       ├── slides.ts     # 17 tools
 │       └── auth.ts       # 2 tools
@@ -429,6 +430,11 @@ npm start         # Start server directly
 ---
 
 ## Version History
+
+### v2.7.0 — 2026-05-14
+- `gdocs_fill_table_cell` — insert text into a cell by `(rowIndex, columnIndex)`. Handles cell content-range calculation internally, so callers don't need to compute cell text indices. Modes: `replace` (overwrite existing content, default) or `append` (insert before the cell's trailing newline). Solves the "fill empty cells next to labelled rows" workflow without manual index arithmetic. Pair with `gdocs_find_text` (which returns `tableContext` with row/column) to fill cells by their label.
+- 7 new unit tests covering cell-content-range calculation, replace vs append modes, multi-row/column addressing, and validation. Total: 21 tests (was 14).
+- 69 total tools (was 68)
 
 ### v2.6.3 — 2026-05-14
 - **Shared Drive support fix** — every Drive API call (`files.get`, `files.copy`, `files.list`, `files.update`, `files.create`, `permissions.list`) now passes `supportsAllDrives: true` and (where applicable) `includeItemsFromAllDrives: true`. Files in Shared Drives / Team Drives were previously invisible to the Drive API, breaking `gdocs_create_from_template`, `gdrive_get_file_info`, and other Drive operations. The Docs/Sheets/Slides APIs were unaffected because they don't require the flag. No new tools.
