@@ -2,7 +2,7 @@
 
 An MCP server that gives Claude (or any MCP-compatible AI) full read/write access to Google Sheets, Docs, Drive, and Slides. 74 tools, batch operations throughout, and a template workflow for branded presentations.
 
-**Version:** 2.8.0 | **Last Updated:** 2026-05-14 | **Tools:** 74
+**Version:** 2.8.1 | **Last Updated:** 2026-05-21 | **Tools:** 74
 
 ---
 
@@ -435,6 +435,11 @@ npm start         # Start server directly
 ---
 
 ## Version History
+
+### v2.8.1 — 2026-05-21
+- **Surface Google API error details.** `errorResponse` (used by every tool that catches an API error) now extracts the HTTP status code, the API's textual status (`FAILED_PRECONDITION`, `INVALID_ARGUMENT` etc.), the structured error message, and per-field details from `error.response.data.error`. Previously all API errors collapsed to the short top-level message — typically just `"Internal error encountered."` — losing the diagnostic content. Particularly painful for `replaceAllText` failures caused by collisions with pending suggested changes.
+- `gdocs_replace_text` description updated to flag the known footgun: documents with pending Google Docs suggestions (tracked changes) overlapping the find/replace target tend to return HTTP 500 from the batchUpdate. Resolve suggestions first, or use `gdocs_find_text` + `gdocs_delete_range` for surgical edits.
+- No new tools; no schema changes; all 50 tests pass.
 
 ### v2.8.0 — 2026-05-14
 - **Full table CRUD primitives.** Five new tools that wrap the Google Docs API's row/column/table operations:

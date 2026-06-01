@@ -84,7 +84,11 @@ export function getDocsToolDefinitions(): ToolDefinition[] {
     },
     {
       name: 'gdocs_replace_text',
-      description: 'Find and replace text in a Google Document',
+      description:
+        'Find and replace text throughout a Google Document. Matches every occurrence including inside tables, headers/footers, and footnotes — there is no scoping option in the underlying API. ' +
+        'KNOWN ISSUE: if the document has pending Google Docs suggestions (tracked changes) that overlap your find/replace target, the API typically returns "Internal error encountered" (HTTP 500). ' +
+        'Resolve suggestions in the doc first, or use gdocs_get_document to detect them — it surfaces a "Suggested Changes" summary. ' +
+        'For surgical deletion of a specific occurrence (rather than all occurrences), use gdocs_find_text + gdocs_delete_range instead.',
       inputSchema: {
         type: 'object',
         properties: {

@@ -66,9 +66,76 @@ export function normaliseText(text: string): string {
     .replace(/\\u([0-9a-fA-F]{4})/g, (_, hex) => String.fromCharCode(parseInt(hex, 16)));
 }
 
-/** Build an error response in the standard MCP format. */
+/**
+ * Build an error response in the standard MCP format.
+ *
+ * Surfaces diagnostic detail from googleapis errors (GaxiosError) where possible:
+ * HTTP status code, the API's structured `status` (e.g. FAILED_PRECONDITION,
+ * INVALID_ARGUMENT), and the per-field error details. Without this, all
+ * Google API errors collapse to short messages like "Internal error encountered."
+ * with no actionable diagnostic — particularly painful for batchUpdate failures
+ * (e.g. replaceAllText colliding with pending suggested changes).
+ */
 export function errorResponse(context: string, error: unknown): ToolResponse {
-  const message = error instanceof Error ? error.message : String(error);
+  let message: string;
+
+  if (error instanceof Error) {
+    message = error.message;
+    const e = error as any;
+
+    // googleapis throws GaxiosError where .response.data.error holds the structured API error
+    const apiError = e.response?.data?.error;
+    if (apiError && typeof apiError === 'object') {
+      const parts: string[] = [];
+
+      // HTTP code (often the fastest signal: 4xx = your input is wrong; 5xx = Google's issue)
+      const httpCode = e.response?.status || apiError.code;
+      if (httpCode) parts.push(`[HTTP ${httpCode}]`);
+
+      // Google's textual status (FAILED_PRECONDITION, INVALID_ARGUMENT, etc.)
+      if (apiError.status && apiError.status !== String(httpCode)) {
+        parts.push(`[${apiError.status}]`);
+      }
+
+      if (apiError.message) parts.push(apiError.message);
+
+      // Per-field details — usually the most actionable content
+      const details: string[] = [];
+      if (Array.isArray(apiError.errors)) {
+        for (const d of apiError.errors) {
+          if (!d || typeof d !== 'object') continue;
+          const bits: string[] = [];
+          if (d.message) bits.push(d.message);
+          if (d.reason) bits.push(`(${d.reason})`);
+          if (d.location) bits.push(`at ${d.location}`);
+          if (bits.length > 0) details.push(bits.join(' '));
+        }
+      }
+      if (Array.isArray(apiError.details)) {
+        for (const d of apiError.details) {
+          if (!d || typeof d !== 'object') continue;
+          if (d.detail) details.push(d.detail);
+          else if (d.message) details.push(d.message);
+          else if (d.fieldViolations && Array.isArray(d.fieldViolations)) {
+            for (const fv of d.fieldViolations) {
+              if (fv.description) details.push(`${fv.field || ''}: ${fv.description}`.trim());
+            }
+          }
+        }
+      }
+      if (details.length > 0) {
+        parts.push(`— ${details.join('; ')}`);
+      }
+
+      message = parts.join(' ');
+    } else if (e.response?.status) {
+      // No structured body but we have an HTTP code — surface that at least
+      message = `[HTTP ${e.response.status}] ${message}`;
+    }
+  } else {
+    message = String(error);
+  }
+
   return {
     content: [{ type: 'text', text: `Error ${context}: ${message}` }],
     isError: true,
