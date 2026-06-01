@@ -2,7 +2,7 @@
 
 An MCP server that gives Claude (or any MCP-compatible AI) full read/write access to Google Sheets, Docs, Drive, and Slides. 74 tools, batch operations throughout, and a template workflow for branded presentations.
 
-**Version:** 2.8.1 | **Last Updated:** 2026-05-21 | **Tools:** 74
+**Version:** 2.8.3 | **Last Updated:** 2026-05-21 | **Tools:** 74
 
 ---
 
@@ -414,6 +414,7 @@ Each `tools/*.ts` exports a `get*ToolDefinitions()` function and a handler class
 | "Insufficient permissions" | Re-run `npm run auth` to refresh token with current scopes |
 | "File not found" | Verify file ID; check the file is accessible to your Google account |
 | "Rate limit exceeded" | Use batch operations; reduce request frequency |
+| `[HTTP 500] [INTERNAL] Internal error encountered. (backendError)` on Docs `batchUpdate` | Document has pending Google Docs suggestions (tracked changes) that overlap your edit. The Docs API returns a misleading 500 in this case rather than a useful 400. Accept or reject the suggestions in the doc UI, then retry. `gdocs_get_document` surfaces a "Suggested Changes" summary that lets an agent detect this proactively. |
 | OAuth redirect fails | Ensure port 3000 is free (`lsof -i :3000`) |
 | MCP tools not appearing | Check `start-mcp.sh` (or `start-mcp.cmd` on Windows) path in config; run `npm run build` |
 | Config JSON parse error (Windows) | Run `npm run setup` to regenerate the config. If editing manually, use forward slashes in paths (`C:/Users/...`) and ensure no trailing backslashes |
@@ -435,6 +436,15 @@ npm start         # Start server directly
 ---
 
 ## Version History
+
+### v2.8.3 — 2026-05-21
+- `gdocs_replace_text` now auto-detects pending Google Docs suggestions when a write fails, and appends a diagnostic hint to the error: e.g. `"(hint: document has 2 pending suggestions which likely caused this failure — accept or reject them in the Docs UI and retry; the Docs batchUpdate returns 500 when edits overlap suggested-change ranges)"`. Best-effort — if the detection itself fails, the underlying error is returned unchanged. No latency cost on the success path; one extra read on the failure path.
+- `errorResponse` (utils) gained an optional `suffix` parameter that handlers can use to append context to the final message. The dedup logic still applies to the underlying API error.
+- New shared helper `DocsHandler.detectSuggestionHint(documentId)` — reusable across other write handlers if/when they hit similar collisions; currently wired into `handleReplaceText` only.
+- 2 new unit tests: error-path appends a hint when the mock doc has suggestions; clean docs get no hint and the underlying HTTP code surfaces. Total: 52 tests.
+
+### v2.8.2 — 2026-05-21
+- `errorResponse` now dedupes redundant API error messages — Google often repeats the same string across `apiError.message` and `apiError.errors[].message` / `apiError.details[].detail`. Previously surfaced as `Internal error encountered. — Internal error encountered. (backendError)`; now produces `Internal error encountered. (backendError)`. Cosmetic polish on the v2.8.1 fix.
 
 ### v2.8.1 — 2026-05-21
 - **Surface Google API error details.** `errorResponse` (used by every tool that catches an API error) now extracts the HTTP status code, the API's textual status (`FAILED_PRECONDITION`, `INVALID_ARGUMENT` etc.), the structured error message, and per-field details from `error.response.data.error`. Previously all API errors collapsed to the short top-level message — typically just `"Internal error encountered."` — losing the diagnostic content. Particularly painful for `replaceAllText` failures caused by collisions with pending suggested changes.

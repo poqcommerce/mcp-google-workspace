@@ -1379,6 +1379,11 @@ export class DocsHandler {
   }
 
   private async handleReplaceText(args: ReplaceTextRequest): Promise<ToolResponse> {
+    // KNOWN QUIRK: the Docs API's batchUpdate returns HTTP 500 "Internal error encountered.
+    // (backendError)" — not a 400 — when replaceAllText is issued against a document with
+    // pending suggested changes that overlap the find target. The error is misleading;
+    // it's a server-side rejection driven by document state, not a transient backend issue.
+    // The tool description warns callers; resolve suggestions before bulk-editing.
     try {
       const response = await this.docs.documents.batchUpdate({
         documentId: args.documentId,
@@ -1403,7 +1408,51 @@ export class DocsHandler {
         replace: args.replace,
       });
     } catch (error) {
-      return errorResponse('replacing text', error);
+      const hint = await this.detectSuggestionHint(args.documentId);
+      return errorResponse('replacing text', error, hint);
+    }
+  }
+
+  /**
+   * Best-effort detector for pending Google Docs suggestions (tracked changes).
+   * Called from write-handler error paths to append a diagnostic hint when an
+   * edit fails — particularly useful for the Docs batchUpdate "Internal error
+   * encountered. (backendError)" 500 that fires when replaceAllText collides
+   * with pending suggested-insertion/deletion ranges.
+   *
+   * Returns '' (no hint) on any failure of the detection itself, so the
+   * underlying error message is never replaced with noise from this check.
+   */
+  private async detectSuggestionHint(documentId: string): Promise<string> {
+    try {
+      const doc = await this.docs.documents.get({ documentId });
+      const ids = new Set<string>();
+      const walk = (elements: docs_v1.Schema$StructuralElement[]) => {
+        for (const el of elements || []) {
+          if (el.paragraph?.elements) {
+            for (const e of el.paragraph.elements) {
+              const run = e.textRun;
+              if (!run) continue;
+              for (const id of run.suggestedInsertionIds || []) ids.add(id);
+              for (const id of run.suggestedDeletionIds || []) ids.add(id);
+              for (const id of Object.keys(run.suggestedTextStyleChanges || {})) ids.add(id);
+            }
+          } else if (el.table) {
+            for (const row of el.table.tableRows || []) {
+              for (const cell of row.tableCells || []) {
+                if (cell.content) walk(cell.content);
+              }
+            }
+          }
+        }
+      };
+      walk(doc.data.body?.content || []);
+
+      if (ids.size === 0) return '';
+      const noun = ids.size === 1 ? 'suggestion' : 'suggestions';
+      return ` (hint: document has ${ids.size} pending ${noun} which likely caused this failure — accept or reject them in the Docs UI and retry; the Docs batchUpdate returns 500 when edits overlap suggested-change ranges)`;
+    } catch {
+      return '';
     }
   }
 

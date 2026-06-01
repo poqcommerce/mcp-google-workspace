@@ -720,3 +720,90 @@ describe('gdocs_delete_table', () => {
     expect(batchUpdate).not.toHaveBeenCalled();
   });
 });
+
+// ── gdocs_replace_text — suggestion-collision hint ─────────────────────────
+
+describe('gdocs_replace_text — suggestion-collision hint', () => {
+  it('appends a hint about pending suggestions when batchUpdate fails', async () => {
+    // Mock: batchUpdate rejects with a 500 (like the real Docs API does on suggestion collisions).
+    // documents.get returns a doc with one suggested-deletion ID on a textRun.
+    const docWithSuggestion: docs_v1.Schema$Document = {
+      title: 'Doc with pending suggestion',
+      body: {
+        content: [
+          {
+            paragraph: {
+              elements: [
+                { textRun: { content: 'Hello ', suggestedDeletionIds: ['sugg-1'] } },
+                { textRun: { content: 'world\n' } },
+              ],
+            },
+          },
+        ],
+      },
+    };
+
+    const mockDocs = {
+      documents: {
+        get: vi.fn().mockResolvedValue({ data: docWithSuggestion }),
+        create: vi.fn(),
+        batchUpdate: vi.fn().mockRejectedValue(
+          Object.assign(new Error('Internal error encountered.'), {
+            response: {
+              status: 500,
+              data: { error: { code: 500, status: 'INTERNAL', message: 'Internal error encountered.' } },
+            },
+          }),
+        ),
+      },
+    } as unknown as docs_v1.Docs;
+    const mockDrive = {} as unknown as drive_v3.Drive;
+    const handler = new DocsHandler(mockDocs, mockDrive);
+
+    const result = await handler.handleTool('gdocs_replace_text', {
+      documentId: 'test-id',
+      find: 'Hello',
+      replace: 'Hi',
+    });
+
+    expect((result as any).isError).toBe(true);
+    const text = (result as any).content[0].text;
+    expect(text).toContain('[HTTP 500]');
+    expect(text).toContain('[INTERNAL]');
+    expect(text).toContain('Internal error encountered.');
+    expect(text).toContain('pending suggestion');
+    expect(text).toContain('1 pending suggestion');
+  });
+
+  it('does not append a hint when the document has no pending suggestions', async () => {
+    const cleanDoc: docs_v1.Schema$Document = {
+      title: 'Clean doc',
+      body: { content: [textParagraph('No suggestions here\n')] },
+    };
+
+    const mockDocs = {
+      documents: {
+        get: vi.fn().mockResolvedValue({ data: cleanDoc }),
+        create: vi.fn(),
+        batchUpdate: vi.fn().mockRejectedValue(
+          Object.assign(new Error('Bad request'), {
+            response: { status: 400, data: { error: { code: 400, status: 'INVALID_ARGUMENT', message: 'Bad request' } } },
+          }),
+        ),
+      },
+    } as unknown as docs_v1.Docs;
+    const mockDrive = {} as unknown as drive_v3.Drive;
+    const handler = new DocsHandler(mockDocs, mockDrive);
+
+    const result = await handler.handleTool('gdocs_replace_text', {
+      documentId: 'test-id',
+      find: 'foo',
+      replace: 'bar',
+    });
+
+    expect((result as any).isError).toBe(true);
+    const text = (result as any).content[0].text;
+    expect(text).toContain('[HTTP 400]');
+    expect(text).not.toContain('pending suggestion');
+  });
+});

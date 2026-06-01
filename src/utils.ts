@@ -76,7 +76,7 @@ export function normaliseText(text: string): string {
  * with no actionable diagnostic — particularly painful for batchUpdate failures
  * (e.g. replaceAllText colliding with pending suggested changes).
  */
-export function errorResponse(context: string, error: unknown): ToolResponse {
+export function errorResponse(context: string, error: unknown, suffix?: string): ToolResponse {
   let message: string;
 
   if (error instanceof Error) {
@@ -99,13 +99,17 @@ export function errorResponse(context: string, error: unknown): ToolResponse {
 
       if (apiError.message) parts.push(apiError.message);
 
-      // Per-field details — usually the most actionable content
+      // Per-field details — usually the most actionable content.
+      // Skip entries whose message exactly matches apiError.message (Google often duplicates
+      // the same string across .message and .errors[].message) to avoid noisy redundant output.
       const details: string[] = [];
+      const topMessage = apiError.message;
       if (Array.isArray(apiError.errors)) {
         for (const d of apiError.errors) {
           if (!d || typeof d !== 'object') continue;
+          const isRedundantMessage = d.message && d.message === topMessage;
           const bits: string[] = [];
-          if (d.message) bits.push(d.message);
+          if (d.message && !isRedundantMessage) bits.push(d.message);
           if (d.reason) bits.push(`(${d.reason})`);
           if (d.location) bits.push(`at ${d.location}`);
           if (bits.length > 0) details.push(bits.join(' '));
@@ -114,8 +118,8 @@ export function errorResponse(context: string, error: unknown): ToolResponse {
       if (Array.isArray(apiError.details)) {
         for (const d of apiError.details) {
           if (!d || typeof d !== 'object') continue;
-          if (d.detail) details.push(d.detail);
-          else if (d.message) details.push(d.message);
+          if (d.detail && d.detail !== topMessage) details.push(d.detail);
+          else if (d.message && d.message !== topMessage) details.push(d.message);
           else if (d.fieldViolations && Array.isArray(d.fieldViolations)) {
             for (const fv of d.fieldViolations) {
               if (fv.description) details.push(`${fv.field || ''}: ${fv.description}`.trim());
@@ -135,6 +139,8 @@ export function errorResponse(context: string, error: unknown): ToolResponse {
   } else {
     message = String(error);
   }
+
+  if (suffix) message += suffix;
 
   return {
     content: [{ type: 'text', text: `Error ${context}: ${message}` }],
