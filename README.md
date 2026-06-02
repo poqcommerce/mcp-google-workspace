@@ -2,7 +2,7 @@
 
 An MCP server that gives Claude (or any MCP-compatible AI) full read/write access to Google Sheets, Docs, Drive, and Slides. 74 tools, batch operations throughout, and a template workflow for branded presentations.
 
-**Version:** 2.8.3 | **Last Updated:** 2026-05-21 | **Tools:** 74
+**Version:** 2.8.4 | **Last Updated:** 2026-06-02 | **Tools:** 74
 
 ---
 
@@ -436,6 +436,12 @@ npm start         # Start server directly
 ---
 
 ## Version History
+
+### v2.8.4 — 2026-06-02
+- **`dotenv` now loads from a path relative to the MCP's own file location**, not `process.cwd()`. Previously, if the MCP server was launched with a cwd that didn't contain its `.env` (e.g. by Claude Code from a project subdirectory), dotenv silently loaded nothing and the process relied on env vars injected by the parent — leaving room for silent credential drift when the parent's cached env diverged from `.env`. Now the MCP always finds its own `.env` regardless of cwd.
+- Same fix applied to `npm run auth` (`src/auth.ts`) so the auth flow also reads the project's `.env` consistently.
+- **Recommended:** delete the entire `env` block from your `~/.claude.json`'s `mcpServers.google-workspace` config. `.env` is now the single source of truth and the `env` block is redundant. Removing it eliminates the drift class of bug that caused several hours of debugging in the v2.8.1–2.8.3 cycle.
+- No new tools; 54 tests pass.
 
 ### v2.8.3 — 2026-05-21
 - `gdocs_replace_text` now auto-detects pending Google Docs suggestions when a write fails, and appends a diagnostic hint to the error: e.g. `"(hint: document has 2 pending suggestions which likely caused this failure — accept or reject them in the Docs UI and retry; the Docs batchUpdate returns 500 when edits overlap suggested-change ranges)"`. Best-effort — if the detection itself fails, the underlying error is returned unchanged. No latency cost on the success path; one extra read on the failure path.

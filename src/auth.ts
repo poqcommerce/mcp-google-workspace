@@ -1,10 +1,16 @@
 #!/usr/bin/env node
 
-import 'dotenv/config';
+import { config as dotenvConfig } from 'dotenv';
 import { OAuth2Client } from 'google-auth-library';
 import { createServer } from 'http';
-import { URL } from 'url';
+import { URL, fileURLToPath } from 'url';
+import { dirname, join } from 'path';
 import open from 'open';
+
+// Load .env from this file's directory (../.env), not process.cwd(), so the
+// auth flow finds the project's .env regardless of where `npm run auth` is invoked from.
+const __envFile = fileURLToPath(import.meta.url);
+dotenvConfig({ override: true, path: join(dirname(__envFile), '..', '.env') });
 
 const REDIRECT_URI = 'http://localhost:3000/oauth/callback';
 const SCOPES = [

@@ -1,6 +1,17 @@
 import { config as dotenvConfig } from 'dotenv';
-// Force dotenv to override process.env — MCP clients may cache stale env vars
-dotenvConfig({ override: true });
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
+
+// Load .env from a path relative to this file, not process.cwd(), so the MCP
+// always finds its own credentials regardless of which directory the parent
+// (Claude Code/Desktop) launches it from. Override:true so .env wins over any
+// stale env vars the parent may have injected via its mcpServers config.
+//
+// dist/index.js → ../.env (repo root)
+// src/index.ts (dev mode) → ../.env (same path)
+const __envFile = fileURLToPath(import.meta.url);
+dotenvConfig({ override: true, path: join(dirname(__envFile), '..', '.env') });
+
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import {
@@ -9,8 +20,6 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import { google } from 'googleapis';
 import { OAuth2Client } from 'google-auth-library';
-import { fileURLToPath } from 'url';
-import { dirname } from 'path';
 
 import { SheetsHandler, getSheetsToolDefinitions } from './tools/sheets.js';
 import { DocsHandler, getDocsToolDefinitions } from './tools/docs.js';
